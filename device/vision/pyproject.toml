@@ -9,6 +9,9 @@ dependencies = [
   "opencv-python-headless==4.10.0.84; platform_system != 'Windows'",
 ]
 
+[tool.uv]
+package = true
+
 [dependency-groups]
 dev = [
   "pytest==8.3.4",
@@ -16,3 +19,4 @@ dev = [
 
 [project.scripts]
 adsense-vision = "adsense_vision:main"
+adsense-vision-demo = "adsense_vision.demo:main"

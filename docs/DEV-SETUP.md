@@ -34,6 +34,9 @@ uv run --directory device\agent --python 3.12 adsense-agent
 
 # USB webcam vision, using the OpenCV fallback during development
 uv run --directory device\vision --python 3.12 adsense-vision --fallback
+
+# Two-window camera + TV preview demo
+uv run --directory device\vision --python 3.12 adsense-vision-demo --fallback
 ```
 
 For MediaPipe detection, provide a compatible `.task` model instead:
@@ -50,10 +53,6 @@ $env:ADSENSE_DEVICE_ID = "windows-dev-display"
 $env:ADSENSE_PLATFORM = "windows"
 uv run --directory device\agent --python 3.12 adsense-agent
 ```
-
-The current renderer package is a TypeScript foundation and type-check target;
-it does not yet provide a standalone Chromium app command. The Pi kiosk
-service is therefore a deployment shell for the future renderer runtime.
 
 The C920 adapter selects DirectShow first and Media Foundation as a Windows
 fallback. A physical camera is not required for agent tests; use
