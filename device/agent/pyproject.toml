@@ -7,5 +7,10 @@ dependencies = [
   "websockets==14.1",
 ]
 
+[dependency-groups]
+dev = [
+  "pytest==8.3.4",
+]
+
 [project.scripts]
 adsense-agent = "adsense_agent:main"
