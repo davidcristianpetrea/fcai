@@ -30,7 +30,7 @@ BLE_CONTROL_CHARACTERISTIC_UUID = ${JSON.stringify(BLE.controlCharacteristicUuid
 BLE_NOTIFY_CHARACTERISTIC_UUID = ${JSON.stringify(BLE.notifyCharacteristicUuid)}
 BLE_PROTOCOL_VERSION = ${BLE.protocolVersion}
 BLE_MAX_CHUNK_PAYLOAD = ${BLE.maxChunkPayload}
-BLE_MESSAGE_TYPES = ${JSON.stringify(BLE_MESSAGE_TYPES).replace(/"([^"]+)":/g, "$1:")}
+BLE_MESSAGE_TYPES = ${JSON.stringify(BLE_MESSAGE_TYPES)}
 `;
 await writeFile(new URL("python_constants.py", generatedDirectory), pythonConstants);
 await writeFile(new URL("../../../device/agent/adsense_agent/generated_protocol.py", import.meta.url), pythonConstants);

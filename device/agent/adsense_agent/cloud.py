@@ -7,6 +7,7 @@ import json
 
 
 class CloudLink(Protocol):
+    def claim(self, code: str) -> dict[str, Any]: ...
     def sync(self, payload: dict[str, Any]) -> dict[str, Any]: ...
 
 
@@ -26,3 +27,15 @@ class HttpCloudLink:
         )
         with urlopen(request, timeout=self.timeout) as response:
             return json.loads(response.read())
+    def claim(self, code: str) -> dict[str, Any]:
+        if not self.base_url:
+            return {"ok": False, "reason": "cloud_not_configured"}
+        request = Request(
+            f"{self.base_url.rstrip('/')}/api/device/claim",
+            data=json.dumps({"code": code}).encode(),
+            headers={"content-type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request, timeout=self.timeout) as response:
+            return json.loads(response.read())
+

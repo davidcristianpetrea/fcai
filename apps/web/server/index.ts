@@ -66,6 +66,18 @@ app.post("/api/devices/link", (c) => {
   db.prepare("INSERT INTO link_codes(code, device_id, expires_at) VALUES (?, ?, ?)").run(code, deviceId, Date.now() + 15 * 60_000);
   return c.json({ deviceId, code, expiresAt: Date.now() + 15 * 60_000 });
 });
+app.post("/api/device/claim", async (c) => {
+  const body = await c.req.json<{ code?: string }>();
+  const row = body.code ? db.prepare("SELECT code, device_id FROM link_codes WHERE code = ? AND used_at IS NULL AND expires_at > ?").get(body.code, Date.now()) as { code: string; device_id: string } | undefined : undefined;
+  if (!row) return c.json({ error: "invalid_link_code" }, 401);
+  db.prepare("UPDATE link_codes SET used_at = ? WHERE code = ?").run(new Date().toISOString(), row.code);
+  const now = Math.floor(Date.now() / 1000);
+  return c.json({
+    deviceId: row.device_id,
+    token: createSessionToken({ subject: row.device_id, kind: "device", deviceId: row.device_id, issuedAt: now, expiresAt: now + 31_536_000 }, sessionSecret),
+    config: {},
+  });
+});
 app.get("/api/assets", (c) => {
   if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
   return c.json({ assets: db.prepare("SELECT id, filename, content_type, size_bytes, state, created_at FROM assets WHERE state != 'deleted' ORDER BY created_at DESC").all() });

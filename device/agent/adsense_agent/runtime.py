@@ -40,6 +40,10 @@ class AgentRuntime:
         return {"type": "error", "error": "unsupported_message"}
 
     async def start(self) -> None:
+        if self.config.link_code and self.config.cloud_base_url:
+            claimed = await asyncio.to_thread(self.cloud.claim, self.config.link_code)
+            if claimed.get("token"):
+                self.store.merge({"device_token": claimed["token"], "device_config": claimed.get("config", {})})
         boundary = LocalBoundary(
             self.config.host,
             self.config.http_port,
