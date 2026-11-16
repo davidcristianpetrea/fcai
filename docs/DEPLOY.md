@@ -63,8 +63,9 @@ applies `apps/web/migrations/*.sql`. Media is stored below
 
 ## 3. Keep the process alive with PM2
 
-CloudPanel's current PM2 guide uses the site user, `pm2 start npm --name ... --
-start`, `pm2 save`, and a reboot `pm2 resurrect` cron entry:
+CloudPanel's current PM2 guide uses the site user, a PM2-managed package-manager
+start command, `pm2 save`, and a reboot `pm2 resurrect` cron entry. This
+repository's production entry point is the root `pnpm start` script:
 
 ```bash
 cd ~/htdocs/adsense.davidpetrea.ro
