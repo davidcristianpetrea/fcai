@@ -45,6 +45,21 @@
   rules.
 - Added the MediaPipe Tasks detector boundary, rate-capped vision service, and
   renderer-side face bubble clamping/separation utilities.
+- Added an executable headless `adsense-vision` CLI that emits normalized face
+  telemetry and supports either a deployment-provided MediaPipe model or the
+  OpenCV fallback for development.
 - Validation: seven vision/tracking/attention/service tests pass and Python
   compilation passes. A deployment-provided MediaPipe model asset is still
-  required for live head-pose inference.
+  required for live MediaPipe inference.
+
+## M4 — AdSense smart-display web foundation
+
+- Added the React/Vite/TypeScript dashboard shell in `apps/web` with responsive
+  navigation for displays, configuration, media, leads, statistics, help, and
+  account foundations.
+- Added Romanian-default shared i18n with an English switch, accessible login
+  shell, public `/offer` and `/privacy` pages, and explicit unsupported
+  Bluetooth/browser messaging.
+- Added API status handling that treats Worker `501` responses as reserved
+  milestone functionality rather than inventing backend behavior.
+- Validation: shared and web typechecks/tests plus the Vite production build.

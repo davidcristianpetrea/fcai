@@ -2,7 +2,7 @@ export const SHARED_CONTRACT_VERSION = "1.0.0";
 
 export const SUPPORTED_LOCALES = ["en", "ro"] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
-export const DEFAULT_LOCALE: Locale = "en";
+export const DEFAULT_LOCALE: Locale = "ro";
 
 export const API_PATHS = {
   health: "/api/health",

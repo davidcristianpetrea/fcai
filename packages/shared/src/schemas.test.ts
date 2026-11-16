@@ -17,3 +17,10 @@ test("rejects unsupported locales in public config", () => {
     supportedLocales: ["en", "ro"],
   }).success, false);
 });
+
+test("uses Romanian as the default public locale", () => {
+  assert.equal(publicConfigSchema.parse({
+    contractVersion: "1.0.0",
+    supportedLocales: ["en", "ro"],
+  }).defaultLocale, "ro");
+});

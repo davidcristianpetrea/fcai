@@ -8,7 +8,7 @@
     "offers": "/api/offers",
     "redemptions": "/api/redemptions"
   },
-  "defaultLocale": "en",
+  "defaultLocale": "ro",
   "supportedLocales": [
     "en",
     "ro"
