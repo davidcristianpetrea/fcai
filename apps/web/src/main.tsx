@@ -60,6 +60,14 @@ function PublicPage({ locale, title, body, cta }: { locale: Locale; title: Trans
   return <main className="public-shell"><a className="skip-link" href="#content">{t("backToApp")}</a><section className="public-card" id="content"><p className="eyebrow">{t("publicPage")}</p><h1>{t(title)}</h1><p className="lead">{t(body)}</p>{cta && <button className="button primary" disabled>{t(cta)}</button>}<p><a href="/">{t("backToApp")}</a></p></section></main>;
 }
 
+function OfferPage({ locale }: { locale: Locale }) {
+  const t = (key: TranslationKey) => translate(locale, key);
+  const [sent, setSent] = useState(false);
+  const [notice, setNotice] = useState("");
+  if (sent) return <main className="public-shell"><section className="public-card"><p className="eyebrow">{t("publicPage")}</p><h1>{t("offerSuccess")}</h1></section></main>;
+  return <main className="public-shell"><section className="public-card"><p className="eyebrow">{t("publicPage")}</p><h1>{t("offerTitle")}</h1><p className="lead">{t("offerCta")}</p><form className="offer-form" onSubmit={async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const response = await fetch("/api/leads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: form.get("name"), email: form.get("email"), consent: form.get("consent") === "on", website: form.get("website") }) }); if (response.ok) setSent(true); else setNotice(t("offerRequired")); }}><label>{t("offerName")}<input name="name" required /></label><label>{t("offerEmail")}<input name="email" type="email" required /></label><label className="honeypot" aria-hidden="true">Website<input name="website" tabIndex={-1} autoComplete="off" /></label><label className="consent"><input name="consent" type="checkbox" required />{t("offerConsent")}</label><button className="button primary" type="submit">{t("offerSubmit")}</button>{notice && <p className="notice">{notice}</p>}</form></section></main>;
+}
+
 function LoginShell({ locale }: { locale: Locale }) {
   const t = (key: TranslationKey) => translate(locale, key);
   const [notice, setNotice] = useState("");
@@ -155,6 +163,7 @@ function App() {
   const [locale, setLocale] = useLocale();
   const t = (key: TranslationKey) => translate(locale, key);
   useEffect(() => { document.documentElement.lang = locale; document.title = t("appName"); }, [locale]);
+  if (route === "offer") return <OfferPage locale={locale} />;
   if (route === "privacy") return <PublicPage locale={locale} title="privacyTitle" body="privacyBody" />;
   return <Dashboard locale={locale} setLocale={setLocale} route={route} t={t} />;
 }
