@@ -1,0 +1,7 @@
+Pillow>=10.0
+qrcode[pil]>=7.4
+Flask>=3.0
+
+# OpenCV and NumPy are installed from Raspberry Pi OS to avoid compiling large
+# wheels on the Pi:
+# sudo apt install -y python3-picamera2 python3-opencv
