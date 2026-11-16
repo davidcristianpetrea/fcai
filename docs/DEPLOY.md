@@ -98,7 +98,7 @@ server configuration. Keep CloudPanel's generated SSL/listener directives
 intact and add the location blocks inside the HTTPS server block:
 
 ```nginx
-client_max_body_size 100m;
+client_max_body_size 16m;
 proxy_read_timeout 120s;
 proxy_send_timeout 120s;
 
@@ -124,7 +124,7 @@ location / {
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_read_timeout 120s;
     proxy_send_timeout 120s;
-    client_max_body_size 100m;
+    client_max_body_size 16m;
 }
 ```
 
@@ -138,7 +138,7 @@ sudo nginx -T | grep -A20 -B3 'location /ws/device'
 
 These settings are deliberate:
 
-- `client_max_body_size 100m` is above the 90 MB application file cap.
+- `client_max_body_size 16m` allows the 8 MB upload chunks while keeping request bodies bounded.
 - WebSocket upgrade headers are explicit on `/ws/device`.
 - Read/send timeouts are at least 120 seconds.
 - `CF-Connecting-IP` is consumed by the application; the nginx forwarding
@@ -235,5 +235,5 @@ database when doing a full server backup.
   `wss://adsense.davidpetrea.ro/ws/device`, sends heartbeats, and receives a
   config push.
 - A 50 MB upload succeeds through the Cloudflare proxy and remains below the
-  90 MB application limit.
+  2 GB per-file sanity limit; uploads are sent as 8 MB chunks.
 - Restarting PM2 preserves SQLite data and media files.

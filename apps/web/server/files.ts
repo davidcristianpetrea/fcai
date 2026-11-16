@@ -5,7 +5,8 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import type Database from "better-sqlite3";
 
-export const MAX_UPLOAD_BYTES = 90 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;
+export const CHUNK_BYTES = 8 * 1024 * 1024;
 
 export function tokenFor(assetId: string, kind: "media" | "thumb", expiresAt: number, secret: string): string {
   const payload = `${assetId}.${kind}.${expiresAt}`;
@@ -35,6 +36,7 @@ export async function streamUpload(body: ReadableStream<Uint8Array>, destination
       hash.update(chunk as Buffer);
       if (!output.write(chunk)) await new Promise<void>((resolve) => output.once("drain", resolve));
     }
+
     await new Promise<void>((resolve, reject) => {
       output.end(() => resolve());
       output.once("error", reject);
@@ -45,6 +47,10 @@ export async function streamUpload(body: ReadableStream<Uint8Array>, destination
     throw error;
   }
   return { size, sha256: hash.digest("hex") };
+}
+
+export async function streamChunk(body: ReadableStream<Uint8Array>, destination: string): Promise<{ size: number; sha256: string }> {
+  return streamUpload(body, destination);
 }
 
 export async function rangeFor(file: string, range: string | undefined): Promise<{ stream: ReadableStream; headers: Headers; status: number }> {

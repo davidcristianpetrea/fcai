@@ -26,6 +26,7 @@ export function startMaintenance(db: Database.Database, dataDir: string): NodeJS
     const cutoff = new Date(Date.now() - 7 * 86400_000).toISOString();
     const assets = db.prepare("SELECT id FROM assets WHERE state = 'deleted' AND deleted_at < ? AND NOT EXISTS (SELECT 1 FROM offer_assets WHERE offer_assets.asset_id = assets.id)").all(cutoff) as { id: string }[];
     for (const asset of assets) await rm(path.join(dataDir, "media", asset.id), { recursive: true, force: true });
+    db.prepare("DELETE FROM upload_chunks WHERE asset_id IN (SELECT id FROM assets WHERE state = 'deleted' AND deleted_at < ?)").run(cutoff);
     db.prepare("DELETE FROM assets WHERE state = 'deleted' AND deleted_at < ?").run(cutoff);
     db.prepare("DELETE FROM rate_limits WHERE window_started_at < ?").run(Date.now() - 86_400_000);
   };

@@ -16,7 +16,7 @@
   now a single Node.js 22 process with SQLite, local streamed media, and an
   in-process device socket map behind CloudPanel/nginx.
 - Added startup SQL migrations, WAL mode, nightly SQLite backups retaining
-  seven copies, HMAC upload tokens, 90 MB streamed upload enforcement, range
+  seven copies, HMAC upload tokens, streamed chunked uploads, range
   media downloads, login/session issuance, and device heartbeat handling.
 - Cloudflare Workers, D1, R2, Durable Objects, KV, Queues, and Wrangler are no
   longer used. Cloudflare remains optional DNS/proxy infrastructure.
