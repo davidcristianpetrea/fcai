@@ -8,13 +8,31 @@ packages, and systemd units can be applied repeatedly.
 ```sh
 sudo bash device/setup/setup-pi.sh
 sudo install -d -o adsense -g adsense /opt/adsense
-sudo systemctl start adsense-agent.service adsense-kiosk.service
 ```
 
 The script does not copy application code, create credentials, or start a
 deployment. Set `ADSENSE_DISPLAY_URL` in the service environment for the
 display endpoint. Keep cloud secrets in the target's secret-management
 mechanism, never in this repository.
+
+Copy the repository to `/opt/adsense`, create the agent environment, and install
+the systemd units' expected executable before starting them:
+
+```sh
+rsync -a --delete ./ adsense@PI_HOST:/opt/adsense/
+ssh adsense@PI_HOST 'python3 -m venv /opt/adsense/.venv && \
+  /opt/adsense/.venv/bin/pip install -e /opt/adsense/device/agent'
+ssh adsense@PI_HOST 'sudo mkdir -p /etc/systemd/system/adsense-agent.service.d && \
+  printf "[Service]\nEnvironment=ADSENSE_CLOUD_BASE_URL=https://YOUR_WORKER_DOMAIN\n" | \
+  sudo tee /etc/systemd/system/adsense-agent.service.d/environment.conf >/dev/null && \
+  sudo systemctl daemon-reload'
+ssh adsense@PI_HOST 'sudo systemctl start adsense-agent.service adsense-kiosk.service'
+```
+
+Set `ADSENSE_DISPLAY_URL` in the kiosk service's corresponding environment
+drop-in before starting it. The setup script installs the service and kiosk
+scaffolding; it does not upload the application or provision Cloudflare
+resources.
 
 ## Logitech C920 and V4L2
 
