@@ -48,9 +48,31 @@ export const redemptionSchema = z.object({
   redeemedAt: timestampSchema,
 });
 
+export const bleAuthModeSchema = z.enum(["none", "psk", "pairing"]);
+export const bleHelloSchema = z.object({
+  type: z.literal("hello"),
+  deviceId: idSchema,
+  nonce: z.string().regex(/^[A-Za-z0-9_-]{16,128}$/),
+  authMode: bleAuthModeSchema,
+});
+export const bleWifiCredentialsSchema = z.object({
+  type: z.literal("wifi_credentials"),
+  ssid: z.string().min(1).max(64),
+  password: z.string().max(128),
+});
+export const bleWifiStatusSchema = z.object({
+  type: z.literal("wifi_status"),
+  connected: z.boolean(),
+  error: z.string().max(256).optional(),
+});
+
 export type HealthResponse = z.infer<typeof healthResponseSchema>;
 export type PublicConfig = z.infer<typeof publicConfigSchema>;
 export type SessionClaims = z.infer<typeof sessionClaimsSchema>;
 export type Device = z.infer<typeof deviceSchema>;
 export type Offer = z.infer<typeof offerSchema>;
 export type Redemption = z.infer<typeof redemptionSchema>;
+export type BleAuthMode = z.infer<typeof bleAuthModeSchema>;
+export type BleHello = z.infer<typeof bleHelloSchema>;
+export type BleWifiCredentials = z.infer<typeof bleWifiCredentialsSchema>;
+export type BleWifiStatus = z.infer<typeof bleWifiStatusSchema>;

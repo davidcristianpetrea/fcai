@@ -18,3 +18,19 @@ export const SECURITY = {
   authorizationScheme: "Bearer",
   deviceIdHeader: "X-Device-Id",
 } as const;
+
+export const BLE = {
+  serviceUuid: "7b2f0001-4d7e-4e8f-9f4e-6b0f4e4c0001",
+  controlCharacteristicUuid: "7b2f0002-4d7e-4e8f-9f4e-6b0f4e4c0001",
+  notifyCharacteristicUuid: "7b2f0003-4d7e-4e8f-9f4e-6b0f4e4c0001",
+  protocolVersion: 1,
+  maxChunkPayload: 180,
+} as const;
+
+export const BLE_MESSAGE_TYPES = {
+  hello: 1,
+  wifiCredentials: 2,
+  wifiStatus: 3,
+  identify: 4,
+  error: 255,
+} as const;

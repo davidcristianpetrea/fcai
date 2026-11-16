@@ -63,3 +63,17 @@
 - Added API status handling that treats Worker `501` responses as reserved
   milestone functionality rather than inventing backend behavior.
 - Validation: shared and web typechecks/tests plus the Vite production build.
+
+## M6 — Bluetooth foundations
+
+- Added shared BLE UUIDs, protocol version, message types, and onboarding
+  schemas. `packages/shared` generates Python-consumable constants; generated
+  artifacts are not hand-maintained.
+- Added binary frame encoding/decoding, MTU-safe chunking/reassembly, monotonic
+  replay counters, PBKDF2-HMAC-SHA256 and HKDF-SHA256 key derivation,
+  HMAC-SHA256 verification, and AES-GCM payload protection.
+- Added a real BlueZ/bless transport boundary for Raspberry Pi Linux only.
+  Windows raises `NotSupported`; it does not simulate Bluetooth.
+- Wi-Fi passwords are redacted before diagnostic output. Live onboarding still
+  requires real Pi hardware, BlueZ, and a deployment-provided pairing/PSK.
+- Validation: focused Python Bluetooth tests and shared generation/typechecks.
