@@ -3,8 +3,9 @@
   "private": true,
   "packageManager": "pnpm@9.15.0",
   "scripts": {
+    "build:web": "pnpm --filter @adsense/shared generate && pnpm --filter @adsense/web build",
+    "start:web": "node apps/web/dist-server/server/index.js",
     "build:renderer": "pnpm --filter @adsense/renderer build",
-    "deploy:web": "pnpm --filter @adsense/web deploy",
     "gen:shared": "pnpm --filter @adsense/shared generate",
     "typecheck": "pnpm --filter @adsense/shared typecheck && pnpm --filter @adsense/web typecheck",
     "test": "pnpm --filter @adsense/shared test && pnpm --filter @adsense/web test"

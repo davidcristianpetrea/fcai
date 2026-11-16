@@ -26,7 +26,7 @@ Start each process in its own PowerShell window. The dashboard is separate
 from the local device services:
 
 ```powershell
-# Dashboard/Worker preview
+# Dashboard/Node server preview
 pnpm --filter @adsense/web dev
 
 # Device agent
@@ -42,7 +42,7 @@ For MediaPipe detection, provide a compatible `.task` model instead:
 uv run --directory device\vision --python 3.12 adsense-vision --model C:\path\to\face_detector.task
 ```
 
-Configure the agent before starting it when using a deployed Worker:
+Configure the agent before starting it when using the deployed Node server:
 
 ```powershell
 $env:ADSENSE_CLOUD_BASE_URL = "https://YOUR_WORKER_DOMAIN"

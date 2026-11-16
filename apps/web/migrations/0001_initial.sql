@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS devices (
   name TEXT NOT NULL,
   device_secret_hash TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  last_seen_at TEXT
+  last_seen_at TEXT,
+  last_status TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -37,3 +38,31 @@ CREATE TABLE IF NOT EXISTS redemptions (
 CREATE INDEX IF NOT EXISTS idx_sessions_subject ON sessions(subject);
 CREATE INDEX IF NOT EXISTS idx_offers_active_locale ON offers(active, locale);
 CREATE INDEX IF NOT EXISTS idx_redemptions_offer ON redemptions(offer_id);
+CREATE TABLE IF NOT EXISTS assets (
+  id TEXT PRIMARY KEY,
+  filename TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL DEFAULT 0,
+  sha256 TEXT,
+  state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'ready', 'deleted')),
+  created_at TEXT NOT NULL,
+  deleted_at TEXT
+);
+CREATE TABLE IF NOT EXISTS offer_assets (
+  offer_id TEXT NOT NULL REFERENCES offers(id),
+  asset_id TEXT NOT NULL REFERENCES assets(id),
+  PRIMARY KEY (offer_id, asset_id)
+);
+CREATE TABLE IF NOT EXISTS upload_tokens (
+  id TEXT PRIMARY KEY,
+  asset_id TEXT NOT NULL REFERENCES assets(id),
+  kind TEXT NOT NULL CHECK (kind IN ('media', 'thumb')),
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key TEXT PRIMARY KEY,
+  window_started_at INTEGER NOT NULL,
+  count INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assets_deleted ON assets(state, deleted_at);
