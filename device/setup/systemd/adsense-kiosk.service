@@ -1,0 +1,18 @@
+[Unit]
+Description=AdSense Chromium kiosk
+After=graphical.target adsense-agent.service
+Wants=adsense-agent.service
+
+[Service]
+Type=simple
+User=adsense
+Group=adsense
+Environment=XDG_RUNTIME_DIR=/run/user/1001
+Environment=DISPLAY=:0
+ExecStart=/usr/bin/cage -- /opt/adsense/device/setup/chromium-kiosk.sh
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=graphical.target

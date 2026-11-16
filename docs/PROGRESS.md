@@ -77,3 +77,17 @@
 - Wi-Fi passwords are redacted before diagnostic output. Live onboarding still
   requires real Pi hardware, BlueZ, and a deployment-provided pairing/PSK.
 - Validation: focused Python Bluetooth tests and shared generation/typechecks.
+
+## M5 — Raspberry Pi setup foundations
+
+- Added an idempotent Raspberry Pi OS Lite bootstrap, systemd agent/kiosk
+  templates, Cage/Chromium kiosk launcher, and C920/V4L2 setup notes.
+- Added offline, watchdog, and camera hot-replug operational guidance without
+  claiming deployment.
+
+## M7 — Operations and Windows development foundations
+
+- Added argument-list-only ffmpeg/ffprobe command wrappers and
+  NullIndicator/HudIndicator abstractions with focused tests.
+- Added Windows development, deployment, and demo documentation. GPIO code and
+  secrets remain out of scope.
