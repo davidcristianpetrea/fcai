@@ -43,6 +43,8 @@
 - Added normalized face/message models, IoU tracking, and the pure attention
   state machine with dwell, looking-reset, minimum-offer, exit, and cooldown
   rules.
-- Validation: five vision/tracking/attention tests pass and Python compilation
-  passes. MediaPipe model integration and renderer face-bubble integration remain
-  part of the next M3 implementation slice.
+- Added the MediaPipe Tasks detector boundary, rate-capped vision service, and
+  renderer-side face bubble clamping/separation utilities.
+- Validation: seven vision/tracking/attention/service tests pass and Python
+  compilation passes. A deployment-provided MediaPipe model asset is still
+  required for live head-pose inference.
