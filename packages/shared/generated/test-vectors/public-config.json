@@ -1,0 +1,8 @@
+{
+  "contractVersion": "1.0.0",
+  "defaultLocale": "en",
+  "supportedLocales": [
+    "en",
+    "ro"
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://adsense-smart-display.invalid/shared-contract.schema.json",
+  "title": "SharedContract",
+  "type": "object",
+  "required": [
+    "health",
+    "sessionClaims",
+    "device",
+    "offer",
+    "redemption"
+  ],
+  "properties": {
+    "health": {
+      "type": "object",
+      "required": ["ok", "contractVersion", "environment"],
+      "properties": {
+        "ok": {"const": true},
+        "contractVersion": {"type": "string"},
+        "environment": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "sessionClaims": {
+      "type": "object",
+      "required": ["subject", "kind", "issuedAt", "expiresAt"],
+      "properties": {
+        "subject": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+        "kind": {"enum": ["admin", "device"]},
+        "issuedAt": {"type": "integer", "minimum": 1},
+        "expiresAt": {"type": "integer", "minimum": 1},
+        "deviceId": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"}
+      },
+      "additionalProperties": false
+    },
+    "device": {"$ref": "#/$defs/device"},
+    "offer": {"$ref": "#/$defs/offer"},
+    "redemption": {"$ref": "#/$defs/redemption"}
+  },
+  "$defs": {
+    "device": {
+      "type": "object",
+      "required": ["id", "name", "createdAt", "lastSeenAt"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 120},
+        "createdAt": {"type": "string", "format": "date-time"},
+        "lastSeenAt": {"type": ["string", "null"], "format": "date-time"}
+      },
+      "additionalProperties": false
+    },
+    "offer": {
+      "type": "object",
+      "required": ["id", "title", "description", "locale", "imageKey", "active"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 160},
+        "description": {"type": "string", "maxLength": 2000},
+        "locale": {"enum": ["en", "ro"]},
+        "imageKey": {"type": ["string", "null"], "maxLength": 512},
+        "active": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "redemption": {
+      "type": "object",
+      "required": ["id", "offerId", "deviceId", "redeemedAt"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+        "offerId": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+        "deviceId": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+        "redeemedAt": {"type": "string", "format": "date-time"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

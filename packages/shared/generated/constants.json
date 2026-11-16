@@ -1,0 +1,16 @@
+{
+  "contractVersion": "1.0.0",
+  "apiPaths": {
+    "health": "/api/health",
+    "publicConfig": "/api/public/config",
+    "session": "/api/session",
+    "devices": "/api/devices",
+    "offers": "/api/offers",
+    "redemptions": "/api/redemptions"
+  },
+  "defaultLocale": "en",
+  "supportedLocales": [
+    "en",
+    "ro"
+  ]
+}
