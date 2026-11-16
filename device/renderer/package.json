@@ -1,0 +1,11 @@
+{
+  "name": "@adsense/renderer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "5.7.2"
+  }
+}

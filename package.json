@@ -1,0 +1,10 @@
+{
+  "name": "adsense-smart-display",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build:renderer": "pnpm --filter @adsense/renderer build",
+    "deploy:web": "pnpm --filter @adsense/web deploy",
+    "gen:shared": "pnpm --filter @adsense/shared generate"
+  }
+}
