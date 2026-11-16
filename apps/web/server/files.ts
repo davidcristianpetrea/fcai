@@ -53,8 +53,16 @@ export async function rangeFor(file: string, range: string | undefined): Promise
   if (!range) return { stream: Readable.toWeb(createReadStream(file)) as ReadableStream, headers, status: 200 };
   const match = /^bytes=(\d*)-(\d*)$/u.exec(range);
   if (!match || (!match[1] && !match[2])) throw new Error("range_not_satisfiable");
-  const start = match[1] ? Number(match[1]) : Math.max(0, info.size - Number(match[2]));
-  const end = match[2] ? Math.min(info.size - 1, Number(match[2])) : info.size - 1;
+  const requestedStart = match[1] ? Number(match[1]) : undefined;
+  const requestedEnd = match[2] ? Number(match[2]) : undefined;
+  if ([requestedStart, requestedEnd].some((value) => value !== undefined && !Number.isSafeInteger(value))) {
+    throw new Error("range_not_satisfiable");
+  }
+  if (requestedStart === undefined && requestedEnd === 0) throw new Error("range_not_satisfiable");
+  const start = requestedStart === undefined ? Math.max(0, info.size - requestedEnd!) : requestedStart;
+  const end = requestedEnd === undefined || requestedStart === undefined
+    ? info.size - 1
+    : Math.min(info.size - 1, requestedEnd);
   if (start > end || start >= info.size) throw new Error("range_not_satisfiable");
   headers.set("Content-Range", `bytes ${start}-${end}/${info.size}`);
   headers.set("Content-Length", String(end - start + 1));

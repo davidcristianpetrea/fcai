@@ -68,7 +68,7 @@ start`, `pm2 save`, and a reboot `pm2 resurrect` cron entry:
 
 ```bash
 cd ~/htdocs/adsense.davidpetrea.ro
-pm2 start npm --name adsense-web -- start
+pm2 start pnpm --name adsense-web -- start
 pm2 save
 echo "$PATH"
 crontab -e
