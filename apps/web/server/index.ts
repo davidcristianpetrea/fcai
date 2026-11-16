@@ -53,6 +53,44 @@ app.get("/api/session/me", (c) => {
   const claims = admin(c.req.raw);
   return claims ? c.json({ session: claims }) : c.json({ error: "unauthorized" }, 401);
 });
+app.get("/api/devices", (c) => {
+  if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
+  const rows = db.prepare("SELECT id, name, language, last_seen_at, last_status, config_json FROM devices ORDER BY name").all() as { id: string; name: string; language: string; last_seen_at?: string; last_status?: string; config_json: string }[];
+  return c.json({ devices: rows.map((row) => ({ ...row, online: Boolean(row.last_seen_at && Date.now() - Date.parse(row.last_seen_at) <= 90_000), config: JSON.parse(row.config_json) })) });
+});
+app.post("/api/devices/link", (c) => {
+  if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
+  const deviceId = `pc-${crypto.randomUUID().slice(0, 8)}`;
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  db.prepare("INSERT INTO devices(id, name, device_secret_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(deviceId, "PC test display", "link-code", new Date().toISOString(), new Date().toISOString());
+  db.prepare("INSERT INTO link_codes(code, device_id, expires_at) VALUES (?, ?, ?)").run(code, deviceId, Date.now() + 15 * 60_000);
+  return c.json({ deviceId, code, expiresAt: Date.now() + 15 * 60_000 });
+});
+app.get("/api/assets", (c) => {
+  if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
+  return c.json({ assets: db.prepare("SELECT id, filename, content_type, size_bytes, state, created_at FROM assets WHERE state != 'deleted' ORDER BY created_at DESC").all() });
+});
+app.delete("/api/assets/:id", (c) => {
+  if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
+  db.prepare("UPDATE assets SET state = 'deleted', deleted_at = ? WHERE id = ?").run(new Date().toISOString(), c.req.param("id"));
+  return c.json({ ok: true });
+});
+app.get("/api/leads", (c) => {
+  if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
+  return c.json({ leads: db.prepare("SELECT id, name, email, consent, created_at FROM leads ORDER BY created_at DESC").all() });
+});
+app.delete("/api/leads/:id", (c) => {
+  if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
+  db.prepare("DELETE FROM leads WHERE id = ?").run(c.req.param("id"));
+  return c.json({ ok: true });
+});
+app.post("/api/leads", async (c) => {
+  const body = await c.req.json<{ name?: string; email?: string; consent?: boolean; website?: string }>();
+  if (body.website || !body.name || !body.email || !body.consent) return c.json({ error: "invalid_lead" }, 400);
+  if (!createRateLimit(db, `lead:${ip(c.req.raw)}`, 5, 3_600_000)) return c.json({ error: "rate_limited" }, 429);
+  db.prepare("INSERT INTO leads(id, name, email, consent, created_at) VALUES (?, ?, ?, 1, ?)").run(crypto.randomUUID(), body.name.trim(), body.email.trim(), new Date().toISOString());
+  return c.json({ ok: true });
+});
 app.post("/api/assets", async (c) => {
   if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
   const body = await c.req.json<{ filename?: string; contentType?: string }>();
@@ -142,7 +180,14 @@ app.post("/api/devices/:id/token", (c) => {
 });
 app.post("/api/devices/:id/config", async (c) => {
   if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
-  return c.json({ ok: deviceHub.sendConfig(c.req.param("id"), await c.req.json()) });
+  const config = await c.req.json();
+  db.prepare("UPDATE devices SET config_json = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(config), new Date().toISOString(), c.req.param("id"));
+  return c.json({ ok: deviceHub.sendConfig(c.req.param("id"), config) });
+});
+app.get("/api/devices/:id/config", (c) => {
+  if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
+  const row = db.prepare("SELECT config_json, language, name FROM devices WHERE id = ?").get(c.req.param("id")) as { config_json: string; language: string; name: string } | undefined;
+  return row ? c.json({ name: row.name, language: row.language, config: JSON.parse(row.config_json) }) : c.json({ error: "not_found" }, 404);
 });
 app.post("/api/device/sync", async (c) => {
   const body = await c.req.json<{ device_id?: string; state?: unknown; config?: unknown }>();

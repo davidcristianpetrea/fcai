@@ -15,7 +15,10 @@ import { getApiState, type ApiState } from "./status.js";
 type Route = "dashboard" | "displays" | "configuration" | "media" | "leads" | "stats" | "help" | "account" | "offer" | "privacy";
 const routeKeys: Partial<Record<Exclude<Route, "offer" | "privacy">, TranslationKey>> = {
   dashboard: "dashboard",
+  displays: "displays",
   media: "media",
+  leads: "leads",
+  account: "account",
 };
 
 function routeFromLocation(): Route {
@@ -76,6 +79,9 @@ async function digestFile(file: File): Promise<string> {
 function MediaUploader({ locale }: { locale: Locale }) {
   const t = (key: TranslationKey) => translate(locale, key);
   const [items, setItems] = useState<{ name: string; progress: number; done: boolean; error?: string }[]>([]);
+  const [assets, setAssets] = useState<{ id: string; filename: string; size_bytes: number }[]>([]);
+  const refresh = () => { void fetch("/api/assets", { headers: authHeaders() }).then((response) => response.ok ? response.json() as Promise<{ assets: typeof assets }> : { assets: [] }).then((payload) => setAssets(payload.assets)); };
+  useEffect(refresh, []);
   const upload = async (file: File, itemIndex: number) => {
     try {
       if (file.size > 2 * 1024 * 1024 * 1024) throw new Error("upload_too_large");
@@ -110,6 +116,7 @@ function MediaUploader({ locale }: { locale: Locale }) {
       const complete = await fetch(`/api/assets/${asset.assetId}/complete?token=${encodeURIComponent(token)}`, { method: "POST", headers: { ...authHeaders(), "content-type": "application/json" }, body: JSON.stringify({ totalSize: file.size, sha256 }) });
       if (!complete.ok) throw new Error((await complete.json().catch(() => ({})) as { error?: string }).error ?? "upload_failed");
       setItems((current) => current.map((item, indexToUpdate) => indexToUpdate === itemIndex ? { ...item, progress: 100, done: true } : item));
+      refresh();
     } catch (error) {
       setItems((current) => current.map((item, indexToUpdate) => indexToUpdate === itemIndex ? { ...item, error: error instanceof Error && error.message === "upload_too_large" ? t("uploadTooLarge") : t("uploadFailed") } : item));
     }
@@ -119,7 +126,28 @@ function MediaUploader({ locale }: { locale: Locale }) {
     setItems(files.map((file) => ({ name: file.name, progress: 0, done: false })));
     files.forEach((file, index) => void upload(file, index));
   };
-  return <div className="panel media-uploader"><label className="button primary file-picker">{t("chooseFiles")}<input type="file" multiple accept="image/jpeg,image/png,image/webp,image/heic,video/mp4,video/quicktime,video/webm,video/x-matroska,image/gif" onChange={chooseFiles} /></label>{items.map((item) => <div className="upload-row" key={item.name}><div className="upload-heading"><span>{item.name}</span><strong>{item.error ?? (item.done ? t("uploadDone") : `${item.progress}%`)}</strong></div><progress max="100" value={item.progress} /></div>)}</div>;
+  return <div className="panel media-uploader"><label className="button primary file-picker">{t("chooseFiles")}<input type="file" multiple accept="image/jpeg,image/png,image/webp,image/heic,video/mp4,video/quicktime,video/webm,video/x-matroska,image/gif" onChange={chooseFiles} /></label>{items.map((item) => <div className="upload-row" key={item.name}><div className="upload-heading"><span>{item.name}</span><strong>{item.error ?? (item.done ? t("uploadDone") : `${item.progress}%`)}</strong></div><progress max="100" value={item.progress} /></div>)}<div className="asset-list">{assets.map((asset) => <div className="upload-heading" key={asset.id}><span>{asset.filename}</span><button className="text-button" onClick={() => { void fetch(`/api/assets/${asset.id}`, { method: "DELETE", headers: authHeaders() }).then(refresh); }}>{t("delete")}</button></div>)}</div></div>;
+}
+
+function DisplaysPanel({ locale }: { locale: Locale }) {
+  const t = (key: TranslationKey) => translate(locale, key);
+  const [devices, setDevices] = useState<{ id: string; name: string; online: boolean }[]>([]);
+  const [code, setCode] = useState("");
+  const refresh = () => { void fetch("/api/devices", { headers: authHeaders() }).then((response) => response.json() as Promise<{ devices: typeof devices }>).then((payload) => setDevices(payload.devices)); };
+  useEffect(refresh, []);
+  const createCode = () => { void fetch("/api/devices/link", { method: "POST", headers: authHeaders() }).then((response) => response.json() as Promise<{ code: string }>).then((payload) => setCode(payload.code)); };
+  return <div className="panel-grid"><section className="panel"><h2>{t("linkDisplay")}</h2><button className="button primary" onClick={createCode}>{t("createLinkCode")}</button>{code && <p className="link-code">{t("linkCode")}: <strong>{code}</strong></p>}</section><section className="panel"><h2>{t("displays")}</h2>{devices.length === 0 ? <p>{t("noActivity")}</p> : devices.map((device) => <div className="upload-heading" key={device.id}><span>{device.name}</span><strong className={device.online ? "online" : "offline"}>{device.online ? t("connected") : t("offline")}</strong></div>)}</section></div>;
+}
+
+function LeadsPanel({ locale }: { locale: Locale }) {
+  const t = (key: TranslationKey) => translate(locale, key);
+  const [leads, setLeads] = useState<{ id: string; name: string; email: string; created_at: string }[]>([]);
+  const [query, setQuery] = useState("");
+  const refresh = () => { void fetch("/api/leads", { headers: authHeaders() }).then((response) => response.json() as Promise<{ leads: typeof leads }>).then((payload) => setLeads(payload.leads)); };
+  useEffect(refresh, []);
+  const visible = leads.filter((lead) => `${lead.name} ${lead.email}`.toLowerCase().includes(query.toLowerCase()));
+  const exportCsv = () => { const csv = ["name,email,created_at", ...visible.map((lead) => [lead.name, lead.email, lead.created_at].map((value) => `"${value.replaceAll('"', '""')}"`).join(","))].join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); link.download = "leads.csv"; link.click(); URL.revokeObjectURL(link.href); };
+  return <section className="panel"><div className="panel-heading"><h2>{t("leads")}</h2><button className="button secondary" onClick={exportCsv}>{t("exportCsv")}</button></div><input className="search-input" placeholder={t("search")} value={query} onChange={(event) => setQuery(event.target.value)} />{visible.length === 0 ? <p>{t("noLeads")}</p> : visible.map((lead) => <div className="upload-heading" key={lead.id}><span>{lead.name} · {lead.email}</span><button className="text-button" onClick={() => { void fetch(`/api/leads/${lead.id}`, { method: "DELETE", headers: authHeaders() }).then(refresh); }}>{t("delete")}</button></div>)}</section>;
 }
 
 function App() {
@@ -143,7 +171,7 @@ function Dashboard({ locale, setLocale, route, t }: { locale: Locale; setLocale:
 function PageContent({ route, t, health, locale }: { route: Route; t: (key: TranslationKey) => string; health: ApiState; locale: Locale }) {
   if (route === "dashboard") return <><section className="hero"><p className="eyebrow">{t("welcome")}</p><p className="lead">{t("dashboardIntro")}</p></section><div className="metric-grid">{[["activeDisplays", "0"], ["pendingLeads", "0"], ["impressions", "-"], ["conversionRate", "-"]].map(([label, value]) => <article className="metric-card" key={label}><span>{t(label as TranslationKey)}</span><strong>{value}</strong></article>)}</div><section className="panel-grid"><article className="panel"><div className="panel-heading"><h2>{t("serviceStatus")}</h2><span className={`status-dot ${health}`}>{health === "healthy" ? t("healthy") : health === "loading" ? "..." : t("unavailable")}</span></div><p>{health === "healthy" ? t("healthOk") : t("unavailable")}</p></article><article className="panel"><h2>{t("recentActivity")}</h2><p className="muted">{t("noActivity")}</p></article></section></>;
   const descriptions: Partial<Record<Route, TranslationKey>> = { displays: "displaysIntro", configuration: "configurationIntro", media: "mediaIntro", leads: "leadsIntro", stats: "statsIntro", help: "helpIntro", account: "accountIntro" };
-  return <section className="page-section"><p className="lead">{t(descriptions[route] ?? "dashboardIntro")}</p>{route === "media" && <MediaUploader locale={locale} />}</section>;
+  return <section className="page-section"><p className="lead">{t(descriptions[route] ?? "dashboardIntro")}</p>{route === "media" && <MediaUploader locale={locale} />}{route === "displays" && <DisplaysPanel locale={locale} />}{route === "leads" && <LeadsPanel locale={locale} />}</section>;
 }
 
 createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);
