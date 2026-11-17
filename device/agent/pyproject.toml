@@ -1,0 +1,25 @@
+[project]
+name = "adsense-agent"
+version = "0.1.0"
+requires-python = "==3.12.*"
+dependencies = [
+  "cryptography==44.0.0",
+  "jsonschema==4.23.0",
+  "websockets==14.1",
+]
+
+[tool.uv]
+package = true
+
+[project.optional-dependencies]
+pi = [
+  "bless==0.2.0",
+]
+
+[dependency-groups]
+dev = [
+  "pytest==8.3.4",
+]
+
+[project.scripts]
+adsense-agent = "adsense_agent:main"

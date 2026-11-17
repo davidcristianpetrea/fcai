@@ -1,0 +1,25 @@
+[Unit]
+Description=AdSense device agent
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=adsense
+Group=adsense
+WorkingDirectory=/opt/adsense
+Environment=ADSENSE_PLATFORM=pi
+Environment=ADSENSE_DATA_DIR=/var/lib/adsense
+Environment=ADSENSE_CLOUD_BASE_URL=https://adsense.davidpetrea.ro
+ExecStart=/opt/adsense/device/agent/.venv/bin/adsense-agent
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/adsense
+
+[Install]
+WantedBy=multi-user.target

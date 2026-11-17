@@ -1,0 +1,58 @@
+from __future__ import annotations
+
+import time
+
+from .attention import AttentionMachine
+from .detector import Detector
+from .models import FacesMessage, VisionConfig
+from .tracking import IoUTracker
+
+
+class VisionService:
+    def __init__(self, detector: Detector, config: VisionConfig | None = None):
+        self.config = config or VisionConfig()
+        self.detector = detector
+        self.tracker = IoUTracker(max_faces=self.config.max_faces)
+        from .attention import AttentionConfig
+        self.attention = AttentionMachine(AttentionConfig(
+            dwell_seconds=self.config.dwell_seconds,
+            looking_reset_seconds=self.config.looking_reset_seconds,
+        ))
+        self._last_detection_ms = -1
+
+    def process(self, frame, timestamp_ms: int | None = None) -> FacesMessage:
+        timestamp_ms = timestamp_ms or int(time.time() * 1000)
+        if (
+            self._last_detection_ms >= 0
+            and timestamp_ms - self._last_detection_ms < 1000 / self.config.max_hz
+        ):
+            return self.message(timestamp_ms)
+        self._last_detection_ms = timestamp_ms
+        detections = self.detector.detect(frame)
+        filtered = [
+            (detection.box, detection.score, detection.yaw, detection.pitch)
+            for detection in detections
+            if detection.box[3] >= self.config.min_face_height
+        ]
+        tracks = self.tracker.update(filtered, timestamp_ms)
+        self.attention.update(tracks, timestamp_ms)
+        faces = tuple(
+            self._face_from_track(track)
+            for track in tracks
+            if timestamp_ms - track.last_seen_ms <= 600
+        )
+        return FacesMessage(timestamp_ms, faces)
+
+    def message(self, timestamp_ms: int) -> FacesMessage:
+        return FacesMessage(timestamp_ms, tuple(
+            self._face_from_track(track)
+            for track in self.tracker.tracks
+            if timestamp_ms - track.last_seen_ms <= 600
+        ))
+
+    @staticmethod
+    def _face_from_track(track):
+        from .models import Face
+        x, y, w, h = track.box
+        return Face(track.id, x, y, w, h, track.yaw, track.pitch, track.looking, track.score)
+

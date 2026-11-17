@@ -1,0 +1,22 @@
+[project]
+name = "adsense-vision"
+version = "0.1.0"
+requires-python = "==3.12.*"
+dependencies = [
+  "mediapipe==0.10.21",
+  "numpy==1.26.4",
+  "opencv-python==4.10.0.84; platform_system == 'Windows'",
+  "opencv-python-headless==4.10.0.84; platform_system != 'Windows'",
+]
+
+[tool.uv]
+package = true
+
+[dependency-groups]
+dev = [
+  "pytest==8.3.4",
+]
+
+[project.scripts]
+adsense-vision = "adsense_vision:main"
+adsense-vision-demo = "adsense_vision.demo:main"

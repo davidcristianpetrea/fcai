@@ -1,0 +1,11 @@
+.venv/
+.uv/
+node_modules/
+dist/
+.dev.vars
+.env
+data/
+apps/web/data/
+apps/web/dist-server/
+*.pyc
+__pycache__/
