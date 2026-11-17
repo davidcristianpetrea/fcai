@@ -72,7 +72,17 @@ class AgentRuntime:
                 if not pairing.get("deviceId") or pairing.get("offline") or int(pairing.get("expiresAt", 0)) <= int(time.time() * 1000):
                     pairing = await asyncio.to_thread(self.cloud.pair_request)
                     print(f"agent: pairing code {pairing.get('code', '')}", flush=True)
-                status = await asyncio.to_thread(self.cloud.pair_status, pairing["deviceId"], pairing["code"])
+                try:
+                    status = await asyncio.to_thread(self.cloud.pair_status, pairing["deviceId"], pairing["code"])
+                except Exception as status_err:
+                    # If server returned 404 (e.g. device was deleted or server database wiped), request a new pairing code immediately!
+                    if "404" in str(status_err) or "not_found" in str(status_err):
+                        print("agent: pair request unknown to server; requesting new code", flush=True)
+                        pairing = await asyncio.to_thread(self.cloud.pair_request)
+                        print(f"agent: new pairing code {pairing.get('code', '')}", flush=True)
+                        status = await asyncio.to_thread(self.cloud.pair_status, pairing["deviceId"], pairing["code"])
+                    else:
+                        raise status_err
                 merged = {**pairing, **status}
                 self.store.merge({"pairing": merged})
                 if status.get("paired") and status.get("token"):
