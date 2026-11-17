@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -183,8 +184,8 @@ class AgentRuntime:
                         if not token or not device_id:
                             break
                         now = time.time() * 1000
-                        # Send telemetry ~4 times per second (every 240ms)
-                        if now - last_sent_ms < 240:
+                        # Send telemetry ~3-4 times per second (every 250ms)
+                        if now - last_sent_ms < 250:
                             continue
                         last_sent_ms = now
                         try:
@@ -196,10 +197,11 @@ class AgentRuntime:
                                     "faces": msg.get("faces", []),
                                     "camera_frame": msg.get("camera_frame"),
                                 }
-                                await asyncio.to_thread(self.cloud.send_telemetry, telemetry_payload, token)
-                        except Exception:
-                            pass
-            except Exception:
+                                res = await asyncio.to_thread(self.cloud.send_telemetry, telemetry_payload, token)
+                        except Exception as loop_err:
+                            print(f"agent telemetry send error: {loop_err}", flush=True)
+            except Exception as conn_err:
+                print(f"agent telemetry connect error: {conn_err}", flush=True)
                 await asyncio.sleep(2)
 
     async def stop(self) -> None:
