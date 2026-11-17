@@ -25,6 +25,25 @@ const deviceHub = new DeviceHub(db);
 const app = new Hono();
 const publicRoot = path.resolve(process.cwd(), "apps/web/dist");
 const contentTypes: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp" };
+const defaultDeviceConfig = {
+  template: "simple",
+  liveFaces: true,
+  lookTime: 3,
+  standbyDuration: 8,
+  standbyEnabled: true,
+  transition: "auto",
+  transitionSpeed: 1,
+  offerLink: "https://adsense.davidpetrea.ro/offer",
+  headline: "",
+  subtext: "",
+  caption: "aici poza cu mâncare",
+  qrSize: 220,
+  offerBackground: "#111827",
+  playlist: [],
+};
+function normalizeConfig(value: unknown): Record<string, unknown> {
+  return { ...defaultDeviceConfig, ...(value && typeof value === "object" ? value as Record<string, unknown> : {}) };
+}
 
 function bearer(request: Request): string | null {
   const value = request.headers.get("authorization");
@@ -55,14 +74,14 @@ app.get("/api/session/me", (c) => {
 });
 app.get("/api/devices", (c) => {
   if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
-  const rows = db.prepare("SELECT id, name, language, last_seen_at, last_status, config_json FROM devices ORDER BY name").all() as { id: string; name: string; language: string; last_seen_at?: string; last_status?: string; config_json: string }[];
-  return c.json({ devices: rows.map((row) => ({ ...row, online: Boolean(row.last_seen_at && Date.now() - Date.parse(row.last_seen_at) <= 90_000), config: JSON.parse(row.config_json) })) });
+  const rows = db.prepare("SELECT id, name, language, last_seen_at, last_status, config_json, config_version, applied_config_version, applied_at FROM devices ORDER BY name").all() as { id: string; name: string; language: string; last_seen_at?: string; last_status?: string; config_json: string; config_version: number; applied_config_version: number; applied_at?: string }[];
+  return c.json({ devices: rows.map((row) => ({ ...row, online: Boolean(row.last_seen_at && Date.now() - Date.parse(row.last_seen_at) < 30_000), config: normalizeConfig(JSON.parse(row.config_json)), syncing: row.config_version !== row.applied_config_version })) });
 });
 app.post("/api/device/pair-request", (c) => {
   const deviceId = `display-${crypto.randomUUID().slice(0, 8)}`;
   const now = Date.now();
   const code = String(Math.floor(100000 + Math.random() * 900000));
-  db.prepare("INSERT INTO devices(id, name, device_secret_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(deviceId, "Ecran nou", "pending-pairing", new Date(now).toISOString(), new Date(now).toISOString());
+  db.prepare("INSERT INTO devices(id, name, device_secret_hash, config_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)").run(deviceId, "Ecran nou", "pending-pairing", JSON.stringify(defaultDeviceConfig), new Date(now).toISOString(), new Date(now).toISOString());
   db.prepare("INSERT INTO pair_requests(device_id, code, expires_at, created_at) VALUES (?, ?, ?, ?)").run(deviceId, code, now + 10 * 60_000, new Date(now).toISOString());
   return c.json({ deviceId, code, expiresAt: now + 10 * 60_000, locale: DEFAULT_LOCALE });
 });
@@ -83,7 +102,7 @@ app.get("/api/device/pair-status", (c) => {
     paired: true,
     deviceId,
     name: row.name,
-    config: JSON.parse(row.config_json),
+    config: normalizeConfig(JSON.parse(row.config_json)),
     token: createSessionToken({ subject: deviceId, kind: "device", deviceId, issuedAt: now, expiresAt: now + 31_536_000 }, sessionSecret),
   });
 });
@@ -94,7 +113,7 @@ app.post("/api/devices/pair", async (c) => {
   if (!row) return c.json({ error: "invalid_pair_code" }, 400);
   const name = body.name?.trim() || "Ecran nou";
   const now = new Date().toISOString();
-  db.prepare("UPDATE devices SET name = ?, device_secret_hash = ?, updated_at = ? WHERE id = ?").run(name, "paired-device", now, row.device_id);
+  db.prepare("UPDATE devices SET name = ?, device_secret_hash = ?, config_json = COALESCE(NULLIF(config_json, '{}'), ?), updated_at = ? WHERE id = ?").run(name, "paired-device", JSON.stringify(defaultDeviceConfig), now, row.device_id);
   db.prepare("UPDATE pair_requests SET bound_at = ? WHERE device_id = ?").run(now, row.device_id);
   return c.json({ ok: true, deviceId: row.device_id, name });
 });
@@ -109,13 +128,13 @@ app.post("/api/device/claim", async (c) => {
     token: createSessionToken({ subject: row.device_id, kind: "device", deviceId: row.device_id, issuedAt: now, expiresAt: now + 31_536_000 }, sessionSecret),
     config: {},
   });
-  app.post("/api/devices/:id/reset", (c) => {
-    if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
-    const id = c.req.param("id");
-    db.prepare("DELETE FROM pair_requests WHERE device_id = ?").run(id);
-    db.prepare("UPDATE devices SET device_secret_hash = ?, config_json = '{}', updated_at = ? WHERE id = ?").run("pending-pairing", new Date().toISOString(), id);
-    return c.json({ ok: true });
-  });
+});
+app.post("/api/devices/:id/reset", (c) => {
+  if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
+  const id = c.req.param("id");
+  db.prepare("DELETE FROM pair_requests WHERE device_id = ?").run(id);
+  db.prepare("UPDATE devices SET device_secret_hash = ?, config_json = ?, config_version = config_version + 1, applied_config_version = 0, updated_at = ? WHERE id = ?").run("pending-pairing", JSON.stringify(defaultDeviceConfig), new Date().toISOString(), id);
+  return c.json({ ok: true });
 });
 app.get("/api/assets", (c) => {
   if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
@@ -231,27 +250,30 @@ app.post("/api/devices/:id/token", (c) => {
 });
 app.post("/api/devices/:id/config", async (c) => {
   if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
-  const config = await c.req.json();
-  db.prepare("UPDATE devices SET config_json = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(config), new Date().toISOString(), c.req.param("id"));
-  return c.json({ ok: deviceHub.sendConfig(c.req.param("id"), config) });
+  const config = normalizeConfig(await c.req.json());
+  const row = db.prepare("SELECT config_version FROM devices WHERE id = ?").get(c.req.param("id")) as { config_version: number } | undefined;
+  const version = (row?.config_version ?? 0) + 1;
+  db.prepare("UPDATE devices SET config_json = ?, config_version = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(config), version, new Date().toISOString(), c.req.param("id"));
+  return c.json({ ok: deviceHub.sendConfig(c.req.param("id"), config), version });
 });
 app.get("/api/devices/:id/config", (c) => {
   if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
-  const row = db.prepare("SELECT config_json, language, name FROM devices WHERE id = ?").get(c.req.param("id")) as { config_json: string; language: string; name: string } | undefined;
-  return row ? c.json({ name: row.name, language: row.language, config: JSON.parse(row.config_json) }) : c.json({ error: "not_found" }, 404);
+  const row = db.prepare("SELECT config_json, language, name, config_version, applied_config_version, applied_at FROM devices WHERE id = ?").get(c.req.param("id")) as { config_json: string; language: string; name: string; config_version: number; applied_config_version: number; applied_at?: string } | undefined;
+  return row ? c.json({ name: row.name, language: row.language, config: normalizeConfig(JSON.parse(row.config_json)), configVersion: row.config_version, appliedConfigVersion: row.applied_config_version, appliedAt: row.applied_at }) : c.json({ error: "not_found" }, 404);
 });
 app.post("/api/device/sync", async (c) => {
-  const body = await c.req.json<{ device_id?: string; state?: unknown; config?: unknown }>();
+  const body = await c.req.json<{ device_id?: string; state?: unknown; config?: unknown; applied_config_version?: number }>();
   if (!body.device_id) return c.json({ error: "device_id_required" }, 400);
   const claims = admin(c.req.raw);
   if (claims?.kind === "device" && claims.deviceId !== body.device_id) return c.json({ error: "unauthorized" }, 401);
   const now = new Date().toISOString();
   db.prepare(
-    "INSERT INTO devices(id, name, device_secret_hash, last_seen_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET last_seen_at = excluded.last_seen_at",
+    "INSERT INTO devices(id, name, device_secret_hash, last_seen_at, last_status) VALUES (?, ?, ?, ?, 'online') ON CONFLICT(id) DO UPDATE SET last_seen_at = excluded.last_seen_at, last_status = 'online'",
   ).run(body.device_id, body.device_id, "legacy-sync", now);
-  const row = db.prepare("SELECT name, config_json FROM devices WHERE id = ?").get(body.device_id) as { name: string; config_json: string } | undefined;
+  if (typeof body.applied_config_version === "number") db.prepare("UPDATE devices SET applied_config_version = ?, applied_at = ? WHERE id = ? AND applied_config_version <= ?").run(body.applied_config_version, now, body.device_id, body.applied_config_version);
+  const row = db.prepare("SELECT name, config_json, config_version, applied_config_version, playlist_json FROM devices WHERE id = ?").get(body.device_id) as { name: string; config_json: string; config_version: number; applied_config_version: number; playlist_json: string } | undefined;
   const media = db.prepare("SELECT id, filename, content_type, size_bytes FROM assets WHERE state = 'ready' ORDER BY created_at").all();
-  return c.json({ ok: true, device_id: body.device_id, name: row?.name ?? body.device_id, config: row ? JSON.parse(row.config_json) : body.config ?? null, media, state: body.state ?? null });
+  return c.json({ ok: true, device_id: body.device_id, name: row?.name ?? body.device_id, config: row ? normalizeConfig(JSON.parse(row.config_json)) : normalizeConfig(body.config), config_version: row?.config_version ?? 0, applied_config_version: row?.applied_config_version ?? 0, playlist: row?.playlist_json ? JSON.parse(row.playlist_json) : [], media, state: body.state ?? null, last_contact_at: now });
 });
 app.get("/api/device/media/:id", async (c) => {
   const claims = admin(c.req.raw);

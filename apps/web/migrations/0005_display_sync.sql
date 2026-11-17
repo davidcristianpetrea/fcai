@@ -1,0 +1,4 @@
+ALTER TABLE devices ADD COLUMN config_version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE devices ADD COLUMN applied_config_version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE devices ADD COLUMN applied_at TEXT;
+ALTER TABLE devices ADD COLUMN playlist_json TEXT NOT NULL DEFAULT '[]';

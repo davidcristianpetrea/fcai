@@ -15,7 +15,7 @@ from .model import ensure_model
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the AdSense on-device vision service.")
-    parser.add_argument("--camera-index", type=int, default=0)
+    parser.add_argument("--camera-index", type=int, default=-1)
     parser.add_argument("--data-dir", default="data")
     parser.add_argument("--ws-host", default="127.0.0.1")
     parser.add_argument("--ws-port", type=int, default=8766)

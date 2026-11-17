@@ -13,6 +13,7 @@ WorkingDirectory=/opt/adsense
 Environment=ADSENSE_PLATFORM=pi
 Environment=ADSENSE_DATA_DIR=/var/lib/adsense
 Environment=ADSENSE_CLOUD_BASE_URL=https://adsense.davidpetrea.ro
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/adsense/device/agent/.venv/bin/adsense-agent
 Restart=on-failure
 RestartSec=5

@@ -7,8 +7,10 @@ Wants=network-online.target
 Type=simple
 User=adsense
 Group=adsense
+SupplementaryGroups=video
 WorkingDirectory=/opt/adsense
 Environment=ADSENSE_DATA_DIR=/var/lib/adsense
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/adsense/device/vision/.venv/bin/adsense-vision --data-dir /var/lib/adsense
 Restart=always
 RestartSec=3

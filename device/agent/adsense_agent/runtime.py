@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 from typing import Any
 from pathlib import Path
@@ -41,21 +42,16 @@ class AgentRuntime:
         return {"type": "error", "error": "unsupported_message"}
 
     async def start(self) -> None:
-        if self.config.link_code and self.config.cloud_base_url:
-            claimed = await asyncio.to_thread(self.cloud.claim, self.config.link_code)
-            if claimed.get("token"):
-                self.store.merge({"device_id": claimed.get("deviceId", self.config.device_id), "device_token": claimed["token"], "device_config": claimed.get("config", {})})
-        elif self.config.cloud_base_url and not self.store.read().get("device_token"):
-            pairing = self.store.read().get("pairing")
-            if not pairing:
-                try:
-                    pairing = await asyncio.to_thread(self.cloud.pair_request)
-                except Exception:
-                    pairing = {"deviceId": self.config.device_id, "code": "------", "expiresAt": 0, "offline": True}
-                self.store.merge({"pairing": pairing})
-            if not pairing.get("offline"):
-                asyncio.create_task(self._pairing_loop())
-        if self.store.read().get("device_token"):
+        if self.config.link_code and self.config.cloud_base_url and not self.store.read().get("device_token"):
+            try:
+                claimed = await asyncio.to_thread(self.cloud.claim, self.config.link_code)
+                if claimed.get("token"):
+                    self.store.merge({"device_id": claimed.get("deviceId", self.config.device_id), "device_token": claimed["token"], "device_config": claimed.get("config", {})})
+            except Exception as error:
+                print(f"agent: claim failed: {error}", flush=True)
+        if self.config.cloud_base_url and not self.store.read().get("device_token"):
+            asyncio.create_task(self._pairing_loop())
+        else:
             asyncio.create_task(self._sync_loop())
         boundary = LocalBoundary(
             self.config.host,
@@ -73,13 +69,20 @@ class AgentRuntime:
         while not self.store.read().get("device_token"):
             pairing = self.store.read().get("pairing", {})
             try:
+                if not pairing.get("deviceId") or pairing.get("offline") or int(pairing.get("expiresAt", 0)) <= int(time.time() * 1000):
+                    pairing = await asyncio.to_thread(self.cloud.pair_request)
+                    print(f"agent: pairing code {pairing.get('code', '')}", flush=True)
                 status = await asyncio.to_thread(self.cloud.pair_status, pairing["deviceId"], pairing["code"])
-                self.store.merge({"pairing": status})
+                merged = {**pairing, **status}
+                self.store.merge({"pairing": merged})
                 if status.get("paired") and status.get("token"):
                     self.store.merge({"device_id": status["deviceId"], "device_token": status["token"], "device_config": status.get("config", {}), "pairing": status})
+                    print("agent: paired; starting sync", flush=True)
+                    asyncio.create_task(self._sync_loop())
                     return
-            except Exception:
-                pass
+                print("agent: pairing pending", flush=True)
+            except Exception as error:
+                print(f"agent: pairing error: {error}", flush=True)
             await asyncio.sleep(3)
 
     async def _sync_loop(self) -> None:
@@ -90,7 +93,14 @@ class AgentRuntime:
                 await asyncio.sleep(3)
                 continue
             try:
-                synced = await asyncio.to_thread(self.cloud.sync, {"device_id": current.get("device_id", self.config.device_id)}, token)
+                synced = await asyncio.to_thread(
+                    self.cloud.sync,
+                    {
+                        "device_id": current.get("device_id", self.config.device_id),
+                        "applied_config_version": current.get("applied_config_version", 0),
+                    },
+                    token,
+                )
                 media_dir = self.config.data_dir / "media"
                 media_dir.mkdir(parents=True, exist_ok=True)
                 manifest = []
@@ -99,10 +109,21 @@ class AgentRuntime:
                     if not target.is_file() or target.stat().st_size != int(item.get("size_bytes") or 0):
                         await asyncio.to_thread(self.cloud.download_media, item["id"], token, target)
                     manifest.append({**item, "local": f"/media/{item['id']}"})
-                self.store.merge({"device_config": synced.get("config", {}), "display_name": synced.get("name", self.config.device_id), "media": manifest, "last_sync": synced})
-            except Exception:
-                pass
-            await asyncio.sleep(5)
+                applied_version = int(synced.get("config_version", 0))
+                self.store.merge({
+                    "device_config": synced.get("config", {}),
+                    "display_name": synced.get("name", self.config.device_id),
+                    "media": manifest,
+                    "playlist": synced.get("playlist", []),
+                    "config_version": applied_version,
+                    "applied_config_version": applied_version,
+                    "last_sync": synced,
+                    "last_contact_at": synced.get("last_contact_at"),
+                })
+                print(f"agent: sync ok; media={len(manifest)} config={synced.get('config_version', 0)}", flush=True)
+            except Exception as error:
+                print(f"agent: sync error: {error}", flush=True)
+            await asyncio.sleep(10)
 
     async def stop(self) -> None:
         if self.websocket_server:
