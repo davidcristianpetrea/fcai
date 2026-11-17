@@ -47,6 +47,21 @@ class HttpCloudLink:
                 return {"ok": False, "deleted": True, "error": "device_deleted"}
             raise
 
+    def send_telemetry(self, payload: dict[str, Any], token: str = "") -> dict[str, Any]:
+        if not self.base_url:
+            return {"ok": False}
+        request = self._request(
+            f"{self.base_url.rstrip('/')}/api/device/telemetry",
+            data=json.dumps(payload).encode(),
+            token=token,
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=3.0) as response:
+                return json.loads(response.read())
+        except Exception:
+            return {"ok": False}
+
     def pair_request(self) -> dict[str, Any]:
         request = self._request(f"{self.base_url.rstrip('/')}/api/device/pair-request", data=b"{}", method="POST")
         with urlopen(request, timeout=self.timeout) as response:

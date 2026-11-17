@@ -53,6 +53,7 @@ class AgentRuntime:
             asyncio.create_task(self._pairing_loop())
         else:
             asyncio.create_task(self._sync_loop())
+            asyncio.create_task(self._telemetry_loop())
         boundary = LocalBoundary(
             self.config.host,
             self.config.http_port,
@@ -89,6 +90,7 @@ class AgentRuntime:
                     self.store.merge({"device_id": status["deviceId"], "device_token": status["token"], "device_config": status.get("config", {}), "pairing": status})
                     print("agent: paired; starting sync", flush=True)
                     asyncio.create_task(self._sync_loop())
+                    asyncio.create_task(self._telemetry_loop())
                     return
                 print("agent: pairing pending", flush=True)
             except Exception as error:
@@ -161,6 +163,44 @@ class AgentRuntime:
             except Exception as error:
                 print(f"agent: sync error: {error}", flush=True)
             await asyncio.sleep(4)
+
+    async def _telemetry_loop(self) -> None:
+        import websockets
+        while True:
+            token = self.store.read().get("device_token")
+            device_id = self.store.read().get("device_id", self.config.device_id)
+            if not token or not device_id:
+                await asyncio.sleep(2)
+                continue
+            try:
+                # Connect to local vision websocket on port 8766
+                async with websockets.connect(f"ws://{self.config.host}:8766") as ws:
+                    print("agent: connected to vision ws for cloud telemetry stream", flush=True)
+                    last_sent_ms = 0
+                    async for raw in ws:
+                        token = self.store.read().get("device_token")
+                        device_id = self.store.read().get("device_id", self.config.device_id)
+                        if not token or not device_id:
+                            break
+                        now = time.time() * 1000
+                        # Send telemetry ~4 times per second (every 240ms)
+                        if now - last_sent_ms < 240:
+                            continue
+                        last_sent_ms = now
+                        try:
+                            msg = json.loads(raw)
+                            if msg.get("t") == "faces":
+                                telemetry_payload = {
+                                    "device_id": device_id,
+                                    "timestamp": msg.get("ts", int(now)),
+                                    "faces": msg.get("faces", []),
+                                    "camera_frame": msg.get("camera_frame"),
+                                }
+                                await asyncio.to_thread(self.cloud.send_telemetry, telemetry_payload, token)
+                        except Exception:
+                            pass
+            except Exception:
+                await asyncio.sleep(2)
 
     async def stop(self) -> None:
         if self.websocket_server:

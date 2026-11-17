@@ -154,16 +154,18 @@ function RemoteLivePreviewPage({ locale }: { locale: Locale }) {
   const searchParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const deviceId = searchParams.get("d") || "";
   const isEmbed = searchParams.get("embed") === "1";
+  const initialView = (searchParams.get("view") as "tv" | "camera" | "split") || "tv";
 
   const [device, setDevice] = useState<{ id: string; name: string; online: boolean; config: Record<string, unknown> } | null>(null);
+  const [telemetry, setTelemetry] = useState<{ online: boolean; timestamp: number; faces: any[]; camera_frame?: string } | null>(null);
+  const [viewMode, setViewMode] = useState<"tv" | "camera" | "split">(initialView);
+
   const [phase, setPhase] = useState<"STANDBY" | "GREETING" | "OFFER">("STANDBY");
   const [greetingAnim, setGreetingAnim] = useState({ scale: 0.8, opacity: 0 });
   const [offerProgress, setOfferProgress] = useState(0);
-  const [faceX, setFaceX] = useState(38);
-  const [faceY, setFaceY] = useState(48);
-  const [autoLoop, setAutoLoop] = useState(true);
+  const [dwellSeconds, setDwellSeconds] = useState(0.0);
 
-  // Poll device config
+  // Poll device config every 5s
   useEffect(() => {
     if (!deviceId) return;
     const fetchInfo = () => {
@@ -179,26 +181,65 @@ function RemoteLivePreviewPage({ locale }: { locale: Locale }) {
     return () => clearInterval(interval);
   }, [deviceId]);
 
-  // Subtle face float animation in STANDBY
+  // Poll live telemetry from device every 220ms
   useEffect(() => {
-    if (phase !== "STANDBY") return;
-    const interval = setInterval(() => {
-      setFaceX(35 + Math.sin(Date.now() / 1400) * 8);
-      setFaceY(46 + Math.cos(Date.now() / 1800) * 6);
-    }, 50);
-    return () => clearInterval(interval);
-  }, [phase]);
+    if (!deviceId) return;
+    let active = true;
+    const fetchTelemetry = async () => {
+      try {
+        const res = await fetch(`/api/public/display/${encodeURIComponent(deviceId)}/telemetry`);
+        if (res.ok && active) {
+          const data = await res.json();
+          setTelemetry(data);
+        }
+      } catch {
+        // ignore transient network glitch
+      }
+    };
+    fetchTelemetry();
+    const interval = setInterval(fetchTelemetry, 220);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [deviceId]);
 
-  // Auto loop simulation
+  const cfg = device?.config || {};
+  const lookTime = Number(cfg.lookTime || 3);
+  const bgColor = String(cfg.offerBackground || "#1c130e");
+  const accentColor = String(cfg.accentColor || "#f59e0b");
+  const greetingText = String(cfg.greetingText || "Hei!");
+  const headline = String(cfg.headline || "20% reducere");
+  const subtext = String(cfg.subtext || "Completează formularul pentru a revendica oferta");
+  const playlist = Array.isArray(cfg.playlist) ? (cfg.playlist as string[]) : [];
+  const activeMediaId = playlist.length > 0 ? playlist[0] : null;
+  const qrLink = String(cfg.offerLink || "https://adsense.davidpetrea.ro/offer");
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrLink)}`;
+
+  // Attention Machine driven by REAL face detections from C920
+  const activeFaces = telemetry?.faces || [];
+  const primaryFace = activeFaces.find((f: any) => f.looking) || activeFaces[0];
+  const isLooking = Boolean(primaryFace?.looking);
+
   useEffect(() => {
-    if (!autoLoop) return;
     let timer: NodeJS.Timeout;
 
-    if (phase === "STANDBY") {
-      timer = setTimeout(() => {
-        setPhase("GREETING");
-      }, 5500);
-    } else if (phase === "GREETING") {
+    if (isLooking) {
+      const interval = setInterval(() => {
+        setDwellSeconds((prev) => {
+          const next = prev + 0.1;
+          if (next >= lookTime && phase === "STANDBY") {
+            setPhase("GREETING");
+          }
+          return next;
+        });
+      }, 100);
+      return () => clearInterval(interval);
+    } else {
+      setDwellSeconds((prev) => Math.max(0, prev - 0.2));
+    }
+
+    if (phase === "GREETING") {
       setGreetingAnim({ scale: 0.6, opacity: 0 });
       const inTimer = setTimeout(() => setGreetingAnim({ scale: 1.05, opacity: 1 }), 40);
       const settleTimer = setTimeout(() => setGreetingAnim({ scale: 1.0, opacity: 1 }), 320);
@@ -217,11 +258,10 @@ function RemoteLivePreviewPage({ locale }: { locale: Locale }) {
         const p = Math.min(1.0, (Date.now() - startTime) / duration);
         const eased = 1 - Math.pow(1 - p, 3);
         setOfferProgress(eased);
-        // Face glides smoothly to the left half (media/people side) - NO teleportation!
-        setFaceX(35 - eased * 12);
         if (p >= 1.0) clearInterval(animInterval);
       }, 20);
 
+      // Offer stays active for 7s before returning to standby
       timer = setTimeout(() => {
         clearInterval(animInterval);
         setOfferProgress(0);
@@ -235,36 +275,22 @@ function RemoteLivePreviewPage({ locale }: { locale: Locale }) {
     }
 
     return () => clearTimeout(timer);
-  }, [phase, autoLoop]);
+  }, [isLooking, phase, lookTime]);
 
-  const triggerLook = () => {
-    if (phase === "STANDBY") {
-      setPhase("GREETING");
-    }
-  };
-
-  const resetToStandby = () => {
-    setOfferProgress(0);
-    setPhase("STANDBY");
-  };
-
-  const cfg = device?.config || {};
-  const bgColor = String(cfg.offerBackground || "#1c130e");
-  const accentColor = String(cfg.accentColor || "#f59e0b");
-  const greetingText = String(cfg.greetingText || "Hei!");
-  const headline = String(cfg.headline || "20% reducere");
-  const subtext = String(cfg.subtext || "Completează formularul pentru a revendica oferta");
-  const playlist = Array.isArray(cfg.playlist) ? (cfg.playlist as string[]) : [];
-  const activeMediaId = playlist.length > 0 ? playlist[0] : null;
-  const qrLink = String(cfg.offerLink || "https://adsense.davidpetrea.ro/offer");
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrLink)}`;
+  // Compute face position on TV screen (interpolating into media half during offer)
+  const rawX = primaryFace ? primaryFace.x * 100 : 50;
+  const rawY = primaryFace ? primaryFace.y * 100 : 50;
+  // Clamped position for people side (left half) during offer
+  const clampedX = Math.min(38, Math.max(12, rawX));
+  const effectiveFaceX = (1.0 - offerProgress) * rawX + offerProgress * clampedX;
+  const effectiveFaceY = rawY;
 
   return (
     <div
       style={{
         width: "100vw",
         height: "100vh",
-        background: "#0a0a0c",
+        background: "#0c0a09",
         overflow: "hidden",
         position: "relative",
         display: "flex",
@@ -272,312 +298,586 @@ function RemoteLivePreviewPage({ locale }: { locale: Locale }) {
         fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
       }}
     >
-      {/* Top Header if not embedded */}
-      {!isEmbed && (
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            zIndex: 100,
-            padding: "12px 20px",
-            background: "rgba(18, 10, 6, 0.88)",
-            backdropFilter: "blur(12px)",
-            borderBottom: "1px solid rgba(245, 158, 11, 0.25)",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            color: "#fff",
-            flexWrap: "wrap",
-            gap: "10px",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <span style={{ fontSize: "20px" }}>📺</span>
-            <div>
-              <strong style={{ fontSize: "16px", color: "#fffbeb" }}>{device?.name || "Ecran AdSense"}</strong>
-              <span style={{ fontSize: "12px", color: device?.online ? "#4ade80" : "#94a3b8", marginLeft: "10px" }}>
-                ● {device?.online ? (locale === "ro" ? "Online (Conectat)" : "Online") : "Offline"}
-              </span>
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-            <button
-              className="button primary"
-              style={{ background: "#f59e0b", color: "#1c130e", fontWeight: 700, padding: "8px 16px", fontSize: "13px" }}
-              onClick={triggerLook}
-              disabled={phase !== "STANDBY"}
+      {/* Top Navigation & View Switcher Bar */}
+      <div
+        style={{
+          padding: isEmbed ? "8px 14px" : "12px 20px",
+          background: "rgba(18, 10, 6, 0.94)",
+          backdropFilter: "blur(14px)",
+          borderBottom: "1px solid rgba(245, 158, 11, 0.25)",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          color: "#fff",
+          flexWrap: "wrap",
+          gap: "10px",
+          zIndex: 100,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <span style={{ fontSize: "18px" }}>📺</span>
+          <div>
+            <strong style={{ fontSize: isEmbed ? "14px" : "15px", color: "#fffbeb" }}>
+              {device?.name || "Ecran AdSense"}
+            </strong>
+            <span
+              style={{
+                fontSize: "12px",
+                color: telemetry?.online ? "#4ade80" : "#94a3b8",
+                marginLeft: "8px",
+                fontWeight: 600,
+              }}
             >
-              👁 {locale === "ro" ? "Simulează privire (Trigger Look)" : "Simulate Look"}
-            </button>
-            <button
-              className="button secondary"
-              style={{ padding: "8px 14px", fontSize: "13px" }}
-              onClick={resetToStandby}
-            >
-              🔄 Standby
-            </button>
-            <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", cursor: "pointer", color: "#e6d5c3" }}>
-              <input type="checkbox" checked={autoLoop} onChange={(e) => setAutoLoop(e.target.checked)} />
-              {locale === "ro" ? "Buclă automată" : "Auto Loop"}
-            </label>
-            <a href="/#displays" className="button secondary" style={{ padding: "8px 14px", fontSize: "13px" }}>
-              ← {locale === "ro" ? "Înapoi la panou" : "Back to dashboard"}
-            </a>
+              ● {telemetry?.online ? "Flux Live Conectat" : "Așteptare semnal"}
+            </span>
           </div>
         </div>
-      )}
 
-      {/* Main Screen Container */}
+        {/* View Switcher Tabs: TV Feed | Camera Feed | Split */}
+        <div
+          style={{
+            display: "inline-flex",
+            background: "#1e130d",
+            padding: "3px",
+            borderRadius: "8px",
+            border: "1px solid rgba(245, 158, 11, 0.3)",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setViewMode("tv")}
+            style={{
+              background: viewMode === "tv" ? "#f59e0b" : "transparent",
+              color: viewMode === "tv" ? "#1c130e" : "#e6d5c3",
+              border: 0,
+              borderRadius: "6px",
+              padding: isEmbed ? "5px 10px" : "6px 14px",
+              fontSize: isEmbed ? "12px" : "13px",
+              fontWeight: 700,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+          >
+            📺 {locale === "ro" ? "Afișaj TV" : "TV Display"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("camera")}
+            style={{
+              background: viewMode === "camera" ? "#f59e0b" : "transparent",
+              color: viewMode === "camera" ? "#1c130e" : "#e6d5c3",
+              border: 0,
+              borderRadius: "6px",
+              padding: isEmbed ? "5px 10px" : "6px 14px",
+              fontSize: isEmbed ? "12px" : "13px",
+              fontWeight: 700,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+          >
+            📷 {locale === "ro" ? "Cameră & AI" : "Camera & AI"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("split")}
+            style={{
+              background: viewMode === "split" ? "#f59e0b" : "transparent",
+              color: viewMode === "split" ? "#1c130e" : "#e6d5c3",
+              border: 0,
+              borderRadius: "6px",
+              padding: isEmbed ? "5px 10px" : "6px 14px",
+              fontSize: isEmbed ? "12px" : "13px",
+              fontWeight: 700,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+          >
+            🔲 {locale === "ro" ? "Split (Ambele)" : "Split View"}
+          </button>
+        </div>
+
+        {!isEmbed && (
+          <a
+            href="/#displays"
+            className="button secondary"
+            style={{ padding: "6px 12px", fontSize: "12px", borderRadius: "6px" }}
+          >
+            ← {locale === "ro" ? "Înapoi la panou" : "Back to dashboard"}
+          </a>
+        )}
+      </div>
+
+      {/* Main Content Area */}
       <div
         style={{
           flex: 1,
           width: "100%",
           height: "100%",
           position: "relative",
+          display: "flex",
           overflow: "hidden",
-          background: "#000",
         }}
       >
-        {/* Layer 1: Standby Media (Video / Image) */}
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            filter: phase === "OFFER" ? "blur(14px) brightness(0.65)" : "none",
-            opacity: phase === "OFFER" ? 0.8 : 1.0,
-            transition: "filter 0.8s ease, opacity 0.8s ease",
-            overflow: "hidden",
-          }}
-        >
-          {activeMediaId ? (
-            <video
-              src={`/api/public/media/${activeMediaId}`}
-              autoPlay
-              loop
-              muted
-              playsInline
-              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            />
-          ) : (
+        {/* ========================================================= */}
+        {/* VIEW 1: LIVE TV DISPLAY (What the customer sees on the TV) */}
+        {/* ========================================================= */}
+        {(viewMode === "tv" || viewMode === "split") && (
+          <div
+            style={{
+              flex: 1,
+              height: "100%",
+              position: "relative",
+              overflow: "hidden",
+              background: "#000",
+              borderRight: viewMode === "split" ? "2px solid rgba(245, 158, 11, 0.4)" : "none",
+            }}
+          >
+            {/* TV Standby Media Layer */}
             <div
               style={{
-                width: "100%",
-                height: "100%",
-                background: "radial-gradient(circle at 50% 40%, #2a1a12, #120a06 75%)",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "#fff",
-                textAlign: "center",
-                padding: "20px",
+                position: "absolute",
+                inset: 0,
+                filter: phase === "OFFER" ? "blur(14px) brightness(0.65)" : "none",
+                opacity: phase === "OFFER" ? 0.82 : 1.0,
+                transition: "filter 0.8s ease, opacity 0.8s ease",
+                overflow: "hidden",
               }}
             >
-              <h1
+              {activeMediaId ? (
+                <video
+                  src={`/api/public/media/${activeMediaId}`}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    background: "radial-gradient(circle at 50% 40%, #2a1a12, #120a06 75%)",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#fff",
+                    textAlign: "center",
+                    padding: "20px",
+                  }}
+                >
+                  <h1
+                    style={{
+                      fontSize: "clamp(2.5rem, 6vw, 5rem)",
+                      fontWeight: 900,
+                      margin: 0,
+                      color: "#f59e0b",
+                      textShadow: "0 6px 30px rgba(245, 158, 11, 0.35)",
+                    }}
+                  >
+                    {device?.name || "AdSense"}
+                  </h1>
+                  <p style={{ fontSize: "clamp(1.1rem, 2.2vw, 1.8rem)", color: "#e6d5c3", marginTop: "0.75rem" }}>
+                    {locale === "ro" ? "Afișaj inteligent interactiv" : "Interactive Smart Display"}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* REAL Face Avatar Overlay (from C920 Webcam) */}
+            {primaryFace && (
+              <div
                 style={{
-                  fontSize: "clamp(3rem, 7vw, 6rem)",
-                  fontWeight: 900,
-                  margin: 0,
-                  color: "#f59e0b",
-                  textShadow: "0 6px 30px rgba(245, 158, 11, 0.35)",
+                  position: "absolute",
+                  left: `${effectiveFaceX}%`,
+                  top: `${effectiveFaceY}%`,
+                  transform: "translate(-50%, -50%)",
+                  width: "clamp(110px, 14vw, 190px)",
+                  height: "clamp(110px, 14vw, 190px)",
+                  borderRadius: "50%",
+                  border: `3px solid ${primaryFace.looking ? "#4ade80" : accentColor}`,
+                  boxShadow: `0 0 35px ${primaryFace.looking ? "rgba(74, 222, 128, 0.5)" : `${accentColor}60`}, inset 0 0 25px rgba(0,0,0,0.6)`,
+                  pointerEvents: "none",
+                  zIndex: 40,
+                  overflow: "hidden",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "rgba(0,0,0,0.3)",
+                  transition: phase === "OFFER" ? "left 0.8s cubic-bezier(0.16, 1, 0.3, 1)" : "none",
                 }}
               >
-                {device?.name || "AdSense"}
-              </h1>
-              <p style={{ fontSize: "clamp(1.2rem, 2.5vw, 2rem)", color: "#e6d5c3", marginTop: "1rem" }}>
-                {locale === "ro" ? "Afișaj inteligent interactiv" : "Interactive Smart Display"}
-              </p>
-            </div>
-          )}
-        </div>
+                {primaryFace.crop_jpeg ? (
+                  <img
+                    src={primaryFace.crop_jpeg}
+                    alt="Face tracking"
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                      borderRadius: "50%",
+                    }}
+                  />
+                ) : (
+                  <span style={{ fontSize: "2.5rem", opacity: 0.8 }}>👤</span>
+                )}
+                {/* Soft Radial Vignette */}
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    borderRadius: "50%",
+                    background: `radial-gradient(circle, transparent 55%, ${bgColor} 98%)`,
+                    pointerEvents: "none",
+                  }}
+                />
+              </div>
+            )}
 
-        {/* Layer 2: Live Face Avatar (Smoothly glides into media half, NO teleportation!) */}
-        <div
-          style={{
-            position: "absolute",
-            left: `${faceX}%`,
-            top: `${faceY}%`,
-            transform: "translate(-50%, -50%)",
-            width: "clamp(120px, 14vw, 190px)",
-            height: "clamp(120px, 14vw, 190px)",
-            borderRadius: "50%",
-            border: `3px solid ${accentColor}`,
-            boxShadow: `0 0 35px ${accentColor}60, inset 0 0 25px rgba(0,0,0,0.6)`,
-            pointerEvents: "none",
-            zIndex: 40,
-            overflow: "hidden",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "rgba(0,0,0,0.25)",
-            backdropFilter: "contrast(1.1) brightness(1.05)",
-            transition: phase === "STANDBY" ? "transform 0.1s linear" : "left 0.8s cubic-bezier(0.16, 1, 0.3, 1)",
-          }}
-        >
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              background: `radial-gradient(circle, transparent 55%, ${bgColor} 95%)`,
-            }}
-          />
-          <span style={{ fontSize: "2.5rem", opacity: 0.8 }}>👤</span>
-        </div>
-
-        {/* Layer 3: Centered "Hei!" Greeting Animation */}
-        {phase === "GREETING" && (
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              zIndex: 50,
-              pointerEvents: "none",
-              background: "rgba(18, 10, 6, 0.35)",
-              backdropFilter: "blur(4px)",
-              opacity: greetingAnim.opacity,
-              transform: `scale(${greetingAnim.scale})`,
-              transition: "transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.25s ease",
-            }}
-          >
-            <span
-              style={{
-                fontSize: "clamp(5.8rem, 13vw, 11rem)",
-                fontWeight: 900,
-                letterSpacing: "-0.04em",
-                color: accentColor,
-                textShadow: `0 16px 60px ${accentColor}80, 0 4px 16px rgba(0,0,0,0.7)`,
-                lineHeight: 1,
-                textAlign: "center",
-              }}
-            >
-              {greetingText}
-            </span>
-          </div>
-        )}
-
-        {/* Layer 4: 50/50 Split Offer with QR Code */}
-        {phase === "OFFER" && (
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              display: "flex",
-              zIndex: 60,
-              pointerEvents: "none",
-            }}
-          >
-            {/* Left: Media & Face Half */}
-            <div style={{ flex: 1, height: "100%", position: "relative" }} />
-
-            {/* Right: Slide-in Offer Half with warm espresso & amber styling */}
-            <div
-              style={{
-                flex: 1,
-                height: "100%",
-                background: `linear-gradient(to right, transparent 0%, rgba(28, 19, 14, 0.45) 8%, rgba(28, 19, 14, 0.92) 24%, ${bgColor} 44%, ${bgColor} 100%)`,
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "center",
-                padding: "clamp(24px, 4vw, 60px)",
-                transform: `translate3d(${(1 - offerProgress) * 60}%, 0, 0)`,
-                opacity: offerProgress,
-                transition: "transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease",
-              }}
-            >
-              <div style={{ maxWidth: "560px", display: "flex", flexDirection: "column", gap: "1rem" }}>
+            {/* Centered "Hei!" Greeting Animation */}
+            {phase === "GREETING" && (
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  zIndex: 50,
+                  pointerEvents: "none",
+                  background: "rgba(18, 10, 6, 0.35)",
+                  backdropFilter: "blur(4px)",
+                  opacity: greetingAnim.opacity,
+                  transform: `scale(${greetingAnim.scale})`,
+                  transition: "transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.25s ease",
+                }}
+              >
                 <span
                   style={{
-                    fontSize: "clamp(1.1rem, 2vw, 1.6rem)",
-                    fontWeight: 800,
+                    fontSize: "clamp(5.8rem, 13vw, 11rem)",
+                    fontWeight: 900,
+                    letterSpacing: "-0.04em",
                     color: accentColor,
-                    letterSpacing: "0.05em",
-                    textTransform: "uppercase",
+                    textShadow: `0 16px 60px ${accentColor}80, 0 4px 16px rgba(0,0,0,0.7)`,
+                    lineHeight: 1,
+                    textAlign: "center",
                   }}
                 >
                   {greetingText}
                 </span>
-                <h1
+              </div>
+            )}
+
+            {/* 50/50 Split Offer with QR Code */}
+            {phase === "OFFER" && (
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  zIndex: 60,
+                  pointerEvents: "none",
+                }}
+              >
+                <div style={{ flex: 1, height: "100%", position: "relative" }} />
+                <div
                   style={{
-                    fontSize: "clamp(2.4rem, 5vw, 4.4rem)",
-                    fontWeight: 900,
-                    lineHeight: 1.08,
-                    letterSpacing: "-0.03em",
-                    margin: 0,
-                    color: "#fffbeb",
-                    textShadow: "0 4px 20px rgba(0,0,0,0.6)",
+                    flex: 1,
+                    height: "100%",
+                    background: `linear-gradient(to right, transparent 0%, rgba(28, 19, 14, 0.45) 8%, rgba(28, 19, 14, 0.92) 24%, ${bgColor} 44%, ${bgColor} 100%)`,
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "center",
+                    padding: "clamp(20px, 3.5vw, 50px)",
+                    transform: `translate3d(${(1 - offerProgress) * 60}%, 0, 0)`,
+                    opacity: offerProgress,
+                    transition: "transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease",
                   }}
                 >
-                  {headline}
-                </h1>
-                <p
-                  style={{
-                    fontSize: "clamp(1.2rem, 2.2vw, 1.9rem)",
-                    lineHeight: 1.35,
-                    margin: 0,
-                    fontWeight: 500,
-                    color: "#e6d5c3",
-                  }}
-                >
-                  {subtext}
-                </p>
-                <div style={{ marginTop: "0.5rem", display: "inline-flex" }}>
-                  <div
-                    style={{
-                      background: "#ffffff",
-                      padding: "clamp(14px, 2vw, 24px)",
-                      borderRadius: "clamp(18px, 2.5vw, 28px)",
-                      boxShadow: "0 24px 60px rgba(0,0,0,0.55), 0 0 0 1px rgba(245, 158, 11, 0.25)",
-                      display: "inline-flex",
-                    }}
-                  >
-                    <img
-                      src={qrUrl}
-                      alt="QR Code"
+                  <div style={{ maxWidth: "560px", display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+                    <span
                       style={{
-                        width: "clamp(140px, 18vw, 230px)",
-                        height: "clamp(140px, 18vw, 230px)",
-                        display: "block",
+                        fontSize: "clamp(1rem, 1.8vw, 1.5rem)",
+                        fontWeight: 800,
+                        color: accentColor,
+                        letterSpacing: "0.05em",
+                        textTransform: "uppercase",
                       }}
-                    />
+                    >
+                      {greetingText}
+                    </span>
+                    <h1
+                      style={{
+                        fontSize: "clamp(2rem, 4.2vw, 3.8rem)",
+                        fontWeight: 900,
+                        lineHeight: 1.08,
+                        letterSpacing: "-0.03em",
+                        margin: 0,
+                        color: "#fffbeb",
+                        textShadow: "0 4px 20px rgba(0,0,0,0.6)",
+                      }}
+                    >
+                      {headline}
+                    </h1>
+                    <p
+                      style={{
+                        fontSize: "clamp(1.1rem, 1.9vw, 1.6rem)",
+                        lineHeight: 1.35,
+                        margin: 0,
+                        fontWeight: 500,
+                        color: "#e6d5c3",
+                      }}
+                    >
+                      {subtext}
+                    </p>
+                    <div style={{ marginTop: "0.4rem", display: "inline-flex" }}>
+                      <div
+                        style={{
+                          background: "#ffffff",
+                          padding: "clamp(12px, 1.8vw, 22px)",
+                          borderRadius: "clamp(16px, 2.2vw, 26px)",
+                          boxShadow: "0 24px 60px rgba(0,0,0,0.55), 0 0 0 1px rgba(245, 158, 11, 0.25)",
+                          display: "inline-flex",
+                        }}
+                      >
+                        <img
+                          src={qrUrl}
+                          alt="QR Code"
+                          style={{
+                            width: "clamp(120px, 16vw, 200px)",
+                            height: "clamp(120px, 16vw, 200px)",
+                            display: "block",
+                          }}
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* Bottom HUD indicator on TV View */}
+            <div
+              style={{
+                position: "absolute",
+                bottom: "12px",
+                left: "14px",
+                zIndex: 80,
+                background: "rgba(18, 10, 6, 0.8)",
+                backdropFilter: "blur(8px)",
+                border: "1px solid rgba(245, 158, 11, 0.3)",
+                borderRadius: "8px",
+                padding: "6px 12px",
+                fontSize: "12px",
+                color: "#e6d5c3",
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+              }}
+            >
+              <span>● {locale === "ro" ? "Afișaj TV Live" : "Live TV Screen"}</span>
+              <span style={{ color: primaryFace ? "#4ade80" : "#94a3b8" }}>
+                {primaryFace
+                  ? (locale === "ro" ? `Față detectată (${primaryFace.looking ? "Privire Activă" : "Privire în altă parte"})` : `Face tracked (${primaryFace.looking ? "Looking" : "Not looking"})`)
+                  : (locale === "ro" ? "Nicio persoană în cadru (Standby)" : "No person in frame")}
+              </span>
             </div>
           </div>
         )}
 
-        {/* Floating trigger button when embedded */}
-        {isEmbed && (
-          <button
-            onClick={triggerLook}
-            disabled={phase !== "STANDBY"}
+        {/* ========================================================= */}
+        {/* VIEW 2: LIVE CAMERA & AI VISION FEED (Only Camera View)   */}
+        {/* ========================================================= */}
+        {(viewMode === "camera" || viewMode === "split") && (
+          <div
             style={{
-              position: "absolute",
-              bottom: "12px",
-              right: "12px",
-              zIndex: 90,
-              background: "rgba(18, 10, 6, 0.85)",
-              border: "1px solid rgba(245, 158, 11, 0.4)",
-              color: "#f59e0b",
-              borderRadius: "20px",
-              padding: "6px 14px",
-              fontSize: "12px",
-              fontWeight: 700,
-              cursor: phase === "STANDBY" ? "pointer" : "default",
-              backdropFilter: "blur(8px)",
+              flex: 1,
+              height: "100%",
+              position: "relative",
+              overflow: "hidden",
+              background: "#080605",
               display: "flex",
-              alignItems: "center",
-              gap: "6px",
+              flexDirection: "column",
             }}
           >
-            <span>👁</span>
-            <span>{phase === "STANDBY" ? (locale === "ro" ? "Simulează privire" : "Simulate look") : (locale === "ro" ? "Activ..." : "Active...")}</span>
-          </button>
+            {/* Live Camera Frame with OpenCV Face Recognition Overlay */}
+            <div
+              style={{
+                flex: 1,
+                position: "relative",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                overflow: "hidden",
+                background: "#000",
+              }}
+            >
+              {telemetry?.camera_frame ? (
+                <img
+                  src={telemetry.camera_frame}
+                  alt="Live Camera Feed"
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "contain",
+                    display: "block",
+                  }}
+                />
+              ) : (
+                <div style={{ textAlign: "center", padding: "20px", color: "#94a3b8" }}>
+                  <div style={{ fontSize: "2.5rem", marginBottom: "10px" }}>📷</div>
+                  <strong style={{ display: "block", fontSize: "16px", color: "#f59e0b" }}>
+                    {locale === "ro" ? "Se conectează la camera C920 de pe Raspberry Pi..." : "Connecting to C920 camera..."}
+                  </strong>
+                  <span style={{ fontSize: "13px", color: "#64748b", marginTop: "6px", display: "block" }}>
+                    {locale === "ro" ? "Așteptare flux video procesat prin MediaPipe AI..." : "Waiting for MediaPipe vision feed..."}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Live AI Telemetry HUD Dashboard */}
+            <div
+              style={{
+                background: "rgba(18, 10, 6, 0.95)",
+                borderTop: "1px solid rgba(245, 158, 11, 0.25)",
+                padding: "14px 18px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "10px",
+              }}
+            >
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+                  gap: "10px",
+                }}
+              >
+                <div
+                  style={{
+                    background: "#1c130e",
+                    padding: "8px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid rgba(245, 158, 11, 0.2)",
+                  }}
+                >
+                  <span style={{ fontSize: "11px", color: "#94a3b8", display: "block" }}>
+                    {locale === "ro" ? "PERSOANE ÎN CADRU" : "PEOPLE IN FRAME"}
+                  </span>
+                  <strong style={{ fontSize: "18px", color: activeFaces.length > 0 ? "#4ade80" : "#fff" }}>
+                    {activeFaces.length}
+                  </strong>
+                </div>
+
+                <div
+                  style={{
+                    background: "#1c130e",
+                    padding: "8px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid rgba(245, 158, 11, 0.2)",
+                  }}
+                >
+                  <span style={{ fontSize: "11px", color: "#94a3b8", display: "block" }}>
+                    {locale === "ro" ? "DETECȚIE PRIVIRE" : "LOOKING DETECTION"}
+                  </span>
+                  <strong style={{ fontSize: "14px", color: isLooking ? "#4ade80" : "#f59e0b" }}>
+                    {isLooking
+                      ? (locale === "ro" ? "SPRE ECRAN ✓" : "LOOKING AT SCREEN ✓")
+                      : (locale === "ro" ? "Altă direcție" : "Not looking")}
+                  </strong>
+                </div>
+
+                <div
+                  style={{
+                    background: "#1c130e",
+                    padding: "8px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid rgba(245, 158, 11, 0.2)",
+                  }}
+                >
+                  <span style={{ fontSize: "11px", color: "#94a3b8", display: "block" }}>
+                    {locale === "ro" ? "TIMP PRIVIRE (DWELL)" : "LOOK DWELL TIME"}
+                  </span>
+                  <strong style={{ fontSize: "14px", color: "#fffbeb" }}>
+                    {dwellSeconds.toFixed(1)}s / {lookTime}s
+                  </strong>
+                  <div
+                    style={{
+                      height: "4px",
+                      background: "rgba(255,255,255,0.15)",
+                      borderRadius: "2px",
+                      marginTop: "4px",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={{
+                        height: "100%",
+                        width: `${Math.min(100, (dwellSeconds / lookTime) * 100)}%`,
+                        background: dwellSeconds >= lookTime ? "#4ade80" : "#f59e0b",
+                        transition: "width 0.1s linear",
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: "#1c130e",
+                    padding: "8px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid rgba(245, 158, 11, 0.2)",
+                  }}
+                >
+                  <span style={{ fontSize: "11px", color: "#94a3b8", display: "block" }}>
+                    {locale === "ro" ? "ÎNCREDERE AI" : "AI CONFIDENCE"}
+                  </span>
+                  <strong style={{ fontSize: "14px", color: "#fffbeb" }}>
+                    {primaryFace ? `${Math.round(primaryFace.score * 100)}%` : "0%"}
+                  </strong>
+                </div>
+              </div>
+
+              {/* Strip of recognized faces with actual cropped photos */}
+              {activeFaces.length > 0 && (
+                <div style={{ display: "flex", gap: "10px", alignItems: "center", marginTop: "2px" }}>
+                  <span style={{ fontSize: "12px", color: "#94a3b8" }}>
+                    {locale === "ro" ? "Fețe recunoscute:" : "Recognized faces:"}
+                  </span>
+                  <div style={{ display: "flex", gap: "8px", overflowX: "auto" }}>
+                    {activeFaces.map((f: any) => (
+                      <div
+                        key={f.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          background: "#1c130e",
+                          border: `1px solid ${f.looking ? "#4ade80" : "rgba(245,158,11,0.3)"}`,
+                          padding: "3px 8px",
+                          borderRadius: "6px",
+                        }}
+                      >
+                        {f.crop_jpeg && (
+                          <img
+                            src={f.crop_jpeg}
+                            alt={`Face ${f.id}`}
+                            style={{ width: "24px", height: "24px", borderRadius: "50%", objectFit: "cover" }}
+                          />
+                        )}
+                        <span style={{ fontSize: "12px", fontWeight: 700, color: "#fff" }}>#{f.id}</span>
+                        <span style={{ fontSize: "11px", color: f.looking ? "#4ade80" : "#f59e0b" }}>
+                          {f.looking ? "DA" : "NU"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
     </div>

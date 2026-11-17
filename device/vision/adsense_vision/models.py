@@ -18,6 +18,7 @@ class Face:
     yaw_ratio: float = 0.0
     pitch_ratio: float = 0.55
     crop_jpeg: str | None = None
+    dwell_seconds: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -35,6 +36,8 @@ class Face:
         }
         if self.crop_jpeg:
             data["crop_jpeg"] = self.crop_jpeg
+        if self.dwell_seconds > 0:
+            data["dwell_seconds"] = round(self.dwell_seconds, 2)
         return data
 
 
@@ -42,13 +45,17 @@ class Face:
 class FacesMessage:
     timestamp_ms: int
     faces: tuple[Face, ...]
+    camera_frame: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        res: dict[str, Any] = {
             "t": "faces",
             "ts": self.timestamp_ms,
             "faces": [face.as_dict() for face in self.faces],
         }
+        if self.camera_frame:
+            res["camera_frame"] = self.camera_frame
+        return res
 
 
 @dataclass

@@ -23,6 +23,7 @@ if (!sessionSecret || !adminUsername || !adminPassword) throw new Error("SESSION
 const db = await openDatabase(dataDir);
 const deviceHub = new DeviceHub(db);
 const app = new Hono();
+const latestDeviceTelemetry = new Map<string, { timestamp: number; faces: any[]; camera_frame?: string }>();
 const publicRoot = path.resolve(process.cwd(), "apps/web/dist");
 const contentTypes: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp" };
 const defaultDeviceConfig = {
@@ -207,6 +208,25 @@ app.get("/api/public/display/:id", (c) => {
     config,
   });
 });
+app.get("/api/public/display/:id/telemetry", (c) => {
+  const deviceId = c.req.param("id");
+  const data = latestDeviceTelemetry.get(deviceId);
+  if (!data) {
+    return c.json({
+      online: false,
+      timestamp: Date.now(),
+      faces: [],
+      camera_frame: null,
+    });
+  }
+  const isFresh = Date.now() - data.timestamp < 15_000;
+  return c.json({
+    online: isFresh,
+    timestamp: data.timestamp,
+    faces: data.faces,
+    camera_frame: data.camera_frame || null,
+  });
+});
 app.get("/api/leads", (c) => {
   if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
   return c.json({ leads: db.prepare("SELECT l.id, l.name, l.email, l.consent, l.created_at, l.device_id, d.name AS device_name FROM leads l LEFT JOIN devices d ON d.id = l.device_id ORDER BY l.created_at DESC").all() });
@@ -343,6 +363,19 @@ app.get("/api/devices/:id/config", (c) => {
     try { config.playlist = JSON.parse(row.playlist_json); } catch {}
   }
   return c.json({ name: row.name, language: row.language, config, configVersion: row.config_version, appliedConfigVersion: row.applied_config_version, appliedAt: row.applied_at });
+});
+app.post("/api/device/telemetry", async (c) => {
+  const body = await c.req.json<{ device_id?: string; timestamp?: number; faces?: any[]; camera_frame?: string }>();
+  if (!body.device_id) return c.json({ error: "device_id_required" }, 400);
+  const claims = admin(c.req.raw);
+  if (claims?.kind === "device" && claims.deviceId !== body.device_id) return c.json({ error: "unauthorized" }, 401);
+
+  latestDeviceTelemetry.set(body.device_id, {
+    timestamp: body.timestamp || Date.now(),
+    faces: Array.isArray(body.faces) ? body.faces : [],
+    camera_frame: body.camera_frame,
+  });
+  return c.json({ ok: true });
 });
 app.post("/api/device/sync", async (c) => {
   const body = await c.req.json<{ device_id?: string; state?: unknown; config?: unknown; applied_config_version?: number }>();
