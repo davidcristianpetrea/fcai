@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import numpy as np
 
@@ -11,6 +11,8 @@ try:
 except ImportError:
     cv2 = None
 
+from .attention import compute_head_pose
+
 
 @dataclass(frozen=True)
 class Detection:
@@ -18,6 +20,10 @@ class Detection:
     score: float
     yaw: float = 0.0
     pitch: float = 0.0
+    yaw_ratio: float = 0.0
+    pitch_ratio: float = 0.55
+    looking: bool = False
+    keypoints: tuple[Any, ...] = ()
 
 
 class Detector(Protocol):
@@ -26,12 +32,7 @@ class Detector(Protocol):
 
 
 class MediaPipeFaceDetector:
-    """MediaPipe Tasks face detector wrapper.
-
-    Head-pose extraction is intentionally kept behind the detector boundary: the
-    Face Landmarker model asset is deployment-provided and can be added without
-    changing the tracker, protocol, or attention state machine.
-    """
+    """MediaPipe Tasks face detector wrapper with real looking direction computed from 6 keypoints."""
 
     def __init__(self, model_asset: str, min_detection_confidence: float = 0.5):
         try:
@@ -60,6 +61,12 @@ class MediaPipeFaceDetector:
             box = detection.bounding_box
             category = detection.categories[0] if detection.categories else None
             score = float(category.score) if category else 0.0
+
+            keypoints = tuple(detection.keypoints) if detection.keypoints else ()
+            yaw_ratio, pitch_ratio, yaw_deg, pitch_deg, looking = 0.0, 0.55, 0.0, 0.0, False
+            if len(keypoints) >= 4:
+                yaw_ratio, pitch_ratio, yaw_deg, pitch_deg, looking = compute_head_pose(list(keypoints))
+
             detections.append(Detection(
                 box=(
                     max(0.0, box.origin_x / width),
@@ -68,6 +75,12 @@ class MediaPipeFaceDetector:
                     min(1.0, box.height / height),
                 ),
                 score=score,
+                yaw=round(yaw_deg, 1),
+                pitch=round(pitch_deg, 1),
+                yaw_ratio=round(yaw_ratio, 3),
+                pitch_ratio=round(pitch_ratio, 3),
+                looking=looking,
+                keypoints=keypoints,
             ))
         return detections
 
@@ -88,7 +101,14 @@ class OpenCVFallbackDetector:
         height, width = frame.shape[:2]
         faces = self.detector.detectMultiScale(gray, 1.15, 5, minSize=(24, 24))
         return [
-            Detection((x / width, y / height, w / width, h / height), 0.5)
+            Detection(
+                box=(x / width, y / height, w / width, h / height),
+                score=0.5,
+                yaw=0.0,
+                pitch=0.0,
+                yaw_ratio=0.0,
+                pitch_ratio=0.55,
+                looking=True,
+            )
             for x, y, w, h in faces
         ]
-

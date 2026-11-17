@@ -9,3 +9,4 @@ apps/web/data/
 apps/web/dist-server/
 *.pyc
 __pycache__/
+*.egg-info/

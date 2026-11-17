@@ -1,9 +1,64 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 from .models import Track
+
+YAW_MAX = float(os.getenv("ADSENSE_YAW_MAX", "0.18"))
+PITCH_MIN = float(os.getenv("ADSENSE_PITCH_MIN", "0.35"))
+PITCH_MAX = float(os.getenv("ADSENSE_PITCH_MAX", "0.75"))
+
+
+def compute_head_pose(
+    keypoints: list[Any],
+    yaw_max: float = YAW_MAX,
+    pitch_min: float = PITCH_MIN,
+    pitch_max: float = PITCH_MAX,
+) -> tuple[float, float, float, float, bool]:
+    """Compute head direction cheaply from MediaPipe FaceDetector keypoints.
+    0: right eye
+    1: left eye
+    2: nose tip
+    3: mouth center
+    4: right ear tragion
+    5: left ear tragion
+
+    Returns (yaw_ratio, pitch_ratio, yaw_deg, pitch_deg, looking)
+    """
+    if len(keypoints) < 4:
+        return 0.0, 0.55, 0.0, 0.0, False
+
+    def get_coords(point: Any) -> tuple[float, float]:
+        if hasattr(point, "x") and hasattr(point, "y"):
+            return float(point.x), float(point.y)
+        return float(point[0]), float(point[1])
+
+    re_x, re_y = get_coords(keypoints[0])
+    le_x, le_y = get_coords(keypoints[1])
+    nose_x, nose_y = get_coords(keypoints[2])
+    mouth_x, mouth_y = get_coords(keypoints[3])
+
+    eye_mid_x = (re_x + le_x) / 2.0
+    eye_mid_y = (re_y + le_y) / 2.0
+    eye_dist = abs(le_x - re_x)
+    if eye_dist < 1e-5:
+        eye_dist = 1e-5
+
+    yaw_ratio = (nose_x - eye_mid_x) / eye_dist
+
+    mouth_dist = mouth_y - eye_mid_y
+    if abs(mouth_dist) < 1e-5:
+        mouth_dist = 1e-5
+    pitch_ratio = (nose_y - eye_mid_y) / mouth_dist
+
+    looking = (abs(yaw_ratio) <= yaw_max) and (pitch_min <= pitch_ratio <= pitch_max)
+    yaw_deg = yaw_ratio * 90.0
+    pitch_deg = (pitch_ratio - 0.55) * 100.0
+
+    return yaw_ratio, pitch_ratio, yaw_deg, pitch_deg, looking
 
 
 class AttentionState(str, Enum):
@@ -33,7 +88,13 @@ class AttentionMachine:
 
     def update_looking(self, tracks: list[Track], timestamp_ms: int) -> None:
         for track in tracks:
-            is_looking = abs(track.yaw) <= 25.0 and abs(track.pitch) <= 20.0
+            if track.raw_looking:
+                is_looking = True
+            elif track.yaw_ratio != 0.0 or track.pitch_ratio != 0.55:
+                is_looking = abs(track.yaw_ratio) <= YAW_MAX and PITCH_MIN <= track.pitch_ratio <= PITCH_MAX
+            else:
+                is_looking = abs(track.yaw) <= 25.0 and abs(track.pitch) <= 20.0
+
             if is_looking:
                 track.not_looking_since_ms = None
                 if track.looking_since_ms is None:
@@ -81,4 +142,3 @@ class AttentionMachine:
     def _set(self, state: AttentionState, timestamp_ms: int) -> None:
         self.state = state
         self.state_started_ms = timestamp_ms
-

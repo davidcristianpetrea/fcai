@@ -15,9 +15,12 @@ class Face:
     pitch: float
     looking: bool
     score: float
+    yaw_ratio: float = 0.0
+    pitch_ratio: float = 0.55
+    crop_jpeg: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "id": self.id,
             "x": self.x,
             "y": self.y,
@@ -27,7 +30,12 @@ class Face:
             "pitch": self.pitch,
             "looking": self.looking,
             "score": self.score,
+            "yaw_ratio": self.yaw_ratio,
+            "pitch_ratio": self.pitch_ratio,
         }
+        if self.crop_jpeg:
+            data["crop_jpeg"] = self.crop_jpeg
+        return data
 
 
 @dataclass(frozen=True)
@@ -67,8 +75,11 @@ class Track:
     score: float
     last_seen_ms: int
     looking: bool = False
+    raw_looking: bool = False
     looking_since_ms: int | None = None
     not_looking_since_ms: int | None = None
     yaw: float = 0.0
     pitch: float = 0.0
-
+    yaw_ratio: float = 0.0
+    pitch_ratio: float = 0.55
+    crop_jpeg: str | None = None

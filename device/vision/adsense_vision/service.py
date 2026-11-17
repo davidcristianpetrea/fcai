@@ -30,7 +30,7 @@ class VisionService:
         self._last_detection_ms = timestamp_ms
         detections = self.detector.detect(frame)
         filtered = [
-            (detection.box, detection.score, detection.yaw, detection.pitch)
+            detection
             for detection in detections
             if detection.box[3] >= self.config.min_face_height
         ]
@@ -54,5 +54,17 @@ class VisionService:
     def _face_from_track(track):
         from .models import Face
         x, y, w, h = track.box
-        return Face(track.id, x, y, w, h, track.yaw, track.pitch, track.looking, track.score)
-
+        return Face(
+            id=track.id,
+            x=x,
+            y=y,
+            w=w,
+            h=h,
+            yaw=track.yaw,
+            pitch=track.pitch,
+            looking=track.looking,
+            score=track.score,
+            yaw_ratio=track.yaw_ratio,
+            pitch_ratio=track.pitch_ratio,
+            crop_jpeg=track.crop_jpeg,
+        )

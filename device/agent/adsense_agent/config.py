@@ -9,7 +9,7 @@ from pathlib import Path
 class AgentConfig:
     host: str = "127.0.0.1"
     http_port: int = 8765
-    websocket_port: int = 8766
+    websocket_port: int = 8767
     device_id: str = "display"
     cloud_base_url: str = "https://adsense.davidpetrea.ro"
     link_code: str = ""

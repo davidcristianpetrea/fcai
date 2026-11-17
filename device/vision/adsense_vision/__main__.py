@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import time
 from pathlib import Path
 
 from .camera import C920Camera, CameraConfig
@@ -21,6 +20,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ws-port", type=int, default=8766)
     parser.add_argument("--dwell-seconds", type=float, default=2.0)
     parser.add_argument("--max-hz", type=float, default=20.0)
+    parser.add_argument("--debug", action="store_true", help="Print yaw/pitch ratios per face for threshold tuning")
     return parser.parse_args()
 
 
@@ -38,6 +38,7 @@ def main() -> None:
         detector,
         VisionConfig(dwell_seconds=args.dwell_seconds, max_hz=args.max_hz),
     )
+
     async def run() -> None:
         import websockets
         clients: set = set()
@@ -56,6 +57,15 @@ def main() -> None:
                 frame = camera.analysis_frame(camera.read())
                 message = service.process(frame)
                 payload = json.dumps(message.as_dict(), separators=(",", ":"))
+                if args.debug:
+                    for face in message.faces:
+                        print(
+                            f"[debug] face #{face.id}: yaw_ratio={face.yaw_ratio:.3f} "
+                            f"pitch_ratio={face.pitch_ratio:.3f} yaw={face.yaw:.1f}deg "
+                            f"pitch={face.pitch:.1f}deg looking={face.looking} "
+                            f"size=({face.w:.3f},{face.h:.3f})",
+                            flush=True,
+                        )
                 print(payload, flush=True)
                 if clients:
                     await asyncio.gather(*(client.send(payload) for client in tuple(clients)), return_exceptions=True)

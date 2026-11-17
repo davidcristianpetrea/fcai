@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Any
 
 from .models import Track
 
@@ -28,16 +29,40 @@ class IoUTracker:
 
     def update(
         self,
-        detections: list[tuple[tuple[float, float, float, float], float, float, float]],
+        detections: list[Any],
         timestamp_ms: int,
     ) -> list[Track]:
         unmatched = set(range(len(detections)))
         updated: list[Track] = []
+
+        def unpack(det: Any) -> tuple[tuple[float, float, float, float], float, float, float, float, float, bool]:
+            if hasattr(det, "box"):
+                return (
+                    det.box,
+                    det.score,
+                    getattr(det, "yaw", 0.0),
+                    getattr(det, "pitch", 0.0),
+                    getattr(det, "yaw_ratio", 0.0),
+                    getattr(det, "pitch_ratio", 0.55),
+                    getattr(det, "looking", False),
+                )
+            # Tuple fallback
+            box = det[0]
+            score = det[1]
+            yaw = det[2] if len(det) > 2 else 0.0
+            pitch = det[3] if len(det) > 3 else 0.0
+            yaw_ratio = det[4] if len(det) > 4 else 0.0
+            pitch_ratio = det[5] if len(det) > 5 else 0.55
+            looking = det[6] if len(det) > 6 else False
+            return box, score, yaw, pitch, yaw_ratio, pitch_ratio, looking
+
+        parsed = [unpack(d) for d in detections]
+
         for track in self.tracks:
             best_index = None
             best_iou = self.threshold
             for index in unmatched:
-                candidate_iou = iou(track.box, detections[index][0])
+                candidate_iou = iou(track.box, parsed[index][0])
                 if candidate_iou > best_iou:
                     best_iou = candidate_iou
                     best_index = index
@@ -46,7 +71,7 @@ class IoUTracker:
                     updated.append(track)
                 continue
             unmatched.remove(best_index)
-            box, score, yaw, pitch = detections[best_index]
+            box, score, yaw, pitch, yaw_ratio, pitch_ratio, looking = parsed[best_index]
             updated.append(replace(
                 track,
                 box=box,
@@ -54,12 +79,15 @@ class IoUTracker:
                 last_seen_ms=timestamp_ms,
                 yaw=yaw,
                 pitch=pitch,
+                yaw_ratio=yaw_ratio,
+                pitch_ratio=pitch_ratio,
+                raw_looking=looking,
             ))
 
-        for index in sorted(unmatched, key=lambda value: detections[value][1], reverse=True):
+        for index in sorted(unmatched, key=lambda idx: parsed[idx][1], reverse=True):
             if len(updated) >= self.max_faces:
                 break
-            box, score, yaw, pitch = detections[index]
+            box, score, yaw, pitch, yaw_ratio, pitch_ratio, looking = parsed[index]
             updated.append(Track(
                 id=self._next_id,
                 box=box,
@@ -67,9 +95,11 @@ class IoUTracker:
                 last_seen_ms=timestamp_ms,
                 yaw=yaw,
                 pitch=pitch,
+                yaw_ratio=yaw_ratio,
+                pitch_ratio=pitch_ratio,
+                raw_looking=looking,
             ))
             self._next_id += 1
 
         self.tracks = sorted(updated, key=lambda track: track.score, reverse=True)[:self.max_faces]
         return list(self.tracks)
-
