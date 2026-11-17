@@ -26,15 +26,13 @@ CloudPanel creates the site under the site user's home directory, commonly
 
 ## 2. Upload and build the app
 
-From a workstation with SSH access:
+Upload the repository with CloudPanel's file manager or clone it directly on
+the server, then open an SSH session:
 
-```powershell
-rsync -a --delete --exclude node_modules --exclude .env --exclude data/ `
-  . <site-user>@<server-ip>:~/htdocs/adsense.davidpetrea.ro/
+```bash
 ssh <site-user>@<server-ip>
 cd ~/htdocs/adsense.davidpetrea.ro
 npm install -g pnpm@9.15.0 pm2
-corepack enable
 pnpm install --frozen-lockfile
 cp .env.example .env
 nano .env

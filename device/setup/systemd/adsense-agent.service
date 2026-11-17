@@ -11,14 +11,15 @@ User=adsense
 Group=adsense
 WorkingDirectory=/opt/adsense
 Environment=ADSENSE_PLATFORM=pi
-Environment=ADSENSE_DATA_DIR=/etc/adsense/state
-ExecStart=/opt/adsense/.venv/bin/adsense-agent
+Environment=ADSENSE_DATA_DIR=/var/lib/adsense
+Environment=ADSENSE_CLOUD_BASE_URL=https://adsense.davidpetrea.ro
+ExecStart=/opt/adsense/device/agent/.venv/bin/adsense-agent
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/etc/adsense/state
+ReadWritePaths=/var/lib/adsense
 
 [Install]
 WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+[Unit]
+Description=AdSense camera vision
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=adsense
+Group=adsense
+WorkingDirectory=/opt/adsense
+Environment=ADSENSE_DATA_DIR=/var/lib/adsense
+ExecStart=/opt/adsense/device/vision/.venv/bin/adsense-vision --data-dir /var/lib/adsense
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

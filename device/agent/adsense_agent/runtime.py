@@ -55,6 +55,8 @@ class AgentRuntime:
                 self.store.merge({"pairing": pairing})
             if not pairing.get("offline"):
                 asyncio.create_task(self._pairing_loop())
+        if self.store.read().get("device_token"):
+            asyncio.create_task(self._sync_loop())
         boundary = LocalBoundary(
             self.config.host,
             self.config.http_port,
@@ -78,6 +80,20 @@ class AgentRuntime:
             except Exception:
                 pass
             await asyncio.sleep(3)
+
+    async def _sync_loop(self) -> None:
+        while True:
+            current = self.store.read()
+            token = current.get("device_token")
+            if not token:
+                await asyncio.sleep(3)
+                continue
+            try:
+                synced = await asyncio.to_thread(self.cloud.sync, {"device_id": current.get("device_id", self.config.device_id)}, token)
+                self.store.merge({"device_config": synced.get("config", {}), "display_name": synced.get("name", self.config.device_id), "last_sync": synced})
+            except Exception:
+                pass
+            await asyncio.sleep(5)
 
     async def stop(self) -> None:
         if self.websocket_server:

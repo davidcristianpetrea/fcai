@@ -1,59 +1,32 @@
-# Windows development setup
+# Pornire pe Windows
 
-The supported development host is Windows 10/11 with Git, Python 3.12,
-Node.js 20+, and pnpm 9. Install the repository dependencies from PowerShell:
-
-```powershell
-corepack enable
-pnpm install
-py -3.12 -m pip install uv
-uv sync --project device\agent
-uv sync --project device\vision
-```
-
-Run focused checks without hardware:
+1. Instaleaza Git, Python 3.12 si `uv`.
+2. Deschide PowerShell in folderul proiectului.
+3. Ruleaza:
 
 ```powershell
-uv run --project device\agent python -m unittest discover -s device\agent\tests
-uv run --project device\vision python -m unittest discover -s device\vision\tests
-pnpm test
-pnpm typecheck
+.\start.ps1
 ```
 
-## Run the Windows development pieces
+Se deschid automat agentul, camera si Chrome in modul ecran complet. La primul
+start, televizorul arata un cod. Intra pe `https://adsense.davidpetrea.ro`,
+autentifica-te, deschide **Display-uri → Adauga ecran**, introdu codul si un
+nume, apoi ecranul porneste singur.
 
-Start each process in its own PowerShell window. The dashboard is separate
-from the local device services:
+Pentru o oprire curata inchide Chrome sau apasa `Ctrl+C` in PowerShell.
 
-```powershell
-# Dashboard/Node server preview
-pnpm --filter @adsense/web dev
+## Telefon ca hotspot
 
-# Device agent
-uv run --directory device\agent --python 3.12 adsense-agent
+Pe Pi, conecteaza telefonul la hotspot cu NetworkManager:
 
-# USB webcam vision, using the OpenCV fallback during development
-uv run --directory device\vision --python 3.12 adsense-vision --fallback
-
-# Two-window camera + TV preview demo
-uv run --directory device\vision --python 3.12 adsense-vision-demo --fallback
+```sh
+nmcli radio wifi on
+nmcli device wifi list
+sudo nmcli device wifi connect "NUME_HOTSPOT" password "PAROLA" ifname wlan0
 ```
 
-For MediaPipe detection, provide a compatible `.task` model instead:
+Verifica legatura:
 
-```powershell
-uv run --directory device\vision --python 3.12 adsense-vision --model C:\path\to\face_detector.task
+```sh
+nmcli connection show --active
 ```
-
-Configure the agent before starting it when using the deployed Node server:
-
-```powershell
-$env:ADSENSE_CLOUD_BASE_URL = "https://YOUR_WORKER_DOMAIN"
-$env:ADSENSE_DEVICE_ID = "windows-dev-display"
-$env:ADSENSE_PLATFORM = "windows"
-uv run --directory device\agent --python 3.12 adsense-agent
-```
-
-The C920 adapter selects DirectShow first and Media Foundation as a Windows
-fallback. A physical camera is not required for agent tests; use
-`NullIndicator` or a `HudIndicator` callback rather than GPIO.

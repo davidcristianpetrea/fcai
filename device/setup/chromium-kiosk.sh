@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-URL="${ADSENSE_DISPLAY_URL:-http://127.0.0.1:4173}"
+URL="${ADSENSE_DISPLAY_URL:-http://127.0.0.1:8765/}"
 PROFILE="${ADSENSE_CHROMIUM_PROFILE:-/var/lib/adsense/chromium}"
 
 mkdir -p "${PROFILE}"

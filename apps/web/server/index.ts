@@ -243,11 +243,14 @@ app.get("/api/devices/:id/config", (c) => {
 app.post("/api/device/sync", async (c) => {
   const body = await c.req.json<{ device_id?: string; state?: unknown; config?: unknown }>();
   if (!body.device_id) return c.json({ error: "device_id_required" }, 400);
+  const claims = admin(c.req.raw);
+  if (claims?.kind === "device" && claims.deviceId !== body.device_id) return c.json({ error: "unauthorized" }, 401);
   const now = new Date().toISOString();
   db.prepare(
     "INSERT INTO devices(id, name, device_secret_hash, last_seen_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET last_seen_at = excluded.last_seen_at",
   ).run(body.device_id, body.device_id, "legacy-sync", now);
-  return c.json({ ok: true, device_id: body.device_id, config: body.config ?? null, state: body.state ?? null });
+  const row = db.prepare("SELECT name, config_json FROM devices WHERE id = ?").get(body.device_id) as { name: string; config_json: string } | undefined;
+  return c.json({ ok: true, device_id: body.device_id, name: row?.name ?? body.device_id, config: row ? JSON.parse(row.config_json) : body.config ?? null, state: body.state ?? null });
 });
 app.get("/api/device/media/:id", async (c) => {
   const claims = admin(c.req.raw);

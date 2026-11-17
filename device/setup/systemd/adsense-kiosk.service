@@ -1,7 +1,7 @@
 [Unit]
 Description=AdSense Chromium kiosk
-After=graphical.target adsense-agent.service
-Wants=adsense-agent.service
+After=graphical.target adsense-agent.service adsense-vision.service
+Wants=adsense-agent.service adsense-vision.service
 
 [Service]
 Type=simple
@@ -9,7 +9,7 @@ User=adsense
 Group=adsense
 Environment=XDG_RUNTIME_DIR=/run/user/1001
 Environment=DISPLAY=:0
-ExecStart=/usr/bin/cage -- /opt/adsense/device/setup/chromium-kiosk.sh
+ExecStart=/usr/bin/cage -- /opt/adsense/chromium-kiosk.sh
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
