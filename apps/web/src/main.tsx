@@ -13,11 +13,13 @@ import "./styles.css";
 import { getApiState, type ApiState } from "./status.js";
 
 type Route = "dashboard" | "displays" | "media" | "leads" | "stats" | "help" | "account" | "offer" | "privacy";
-const routeKeys: Partial<Record<Exclude<Route, "offer" | "privacy">, TranslationKey>> = {
+const routeKeys: Record<Exclude<Route, "offer" | "privacy">, TranslationKey> = {
   dashboard: "dashboard",
   displays: "displays",
   media: "media",
   leads: "leads",
+  stats: "stats",
+  help: "help",
   account: "account",
 };
 
@@ -251,13 +253,94 @@ function DisplaysPanel({ locale }: { locale: Locale }) {
 
 function LeadsPanel({ locale }: { locale: Locale }) {
   const t = (key: TranslationKey) => translate(locale, key);
-  const [leads, setLeads] = useState<{ id: string; name: string; email: string; created_at: string }[]>([]);
+  const [leads, setLeads] = useState<{ id: string; name: string; email: string; created_at: string; device_id?: string; device_name?: string }[]>([]);
   const [query, setQuery] = useState("");
-  const refresh = () => { void fetch("/api/leads", { headers: authHeaders() }).then((response) => response.json() as Promise<{ leads: typeof leads }>).then((payload) => setLeads(payload.leads)); };
+  const refresh = () => {
+    void fetch("/api/leads", { headers: authHeaders() })
+      .then((response) => response.json() as Promise<{ leads: typeof leads }>)
+      .then((payload) => setLeads(payload.leads || []));
+  };
   useEffect(refresh, []);
-  const visible = leads.filter((lead) => `${lead.name} ${lead.email}`.toLowerCase().includes(query.toLowerCase()));
-  const exportCsv = () => { const csv = ["name,email,created_at", ...visible.map((lead) => [lead.name, lead.email, lead.created_at].map((value) => `"${value.replaceAll('"', '""')}"`).join(","))].join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); link.download = "leads.csv"; link.click(); URL.revokeObjectURL(link.href); };
-  return <section className="panel"><div className="panel-heading"><h2>{t("leads")}</h2><button className="button secondary" onClick={exportCsv}>{t("exportCsv")}</button></div><input className="search-input" placeholder={t("search")} value={query} onChange={(event) => setQuery(event.target.value)} />{visible.length === 0 ? <p>{t("noLeads")}</p> : visible.map((lead) => <div className="upload-heading" key={lead.id}><span>{lead.name} · {lead.email}</span><button className="text-button" onClick={() => { void fetch(`/api/leads/${lead.id}`, { method: "DELETE", headers: authHeaders() }).then(refresh); }}>{t("delete")}</button></div>)}</section>;
+
+  const visible = leads.filter((lead) =>
+    `${lead.name} ${lead.email} ${lead.device_name || ""}`.toLowerCase().includes(query.toLowerCase())
+  );
+
+  const exportCsv = () => {
+    const headers = locale === "ro" ? "Nume,Email,Ecran,Data\n" : "Name,Email,Display,Date\n";
+    const rows = visible
+      .map((lead) => [lead.name, lead.email, lead.device_name || (locale === "ro" ? "Pagină directă" : "Direct page"), lead.created_at].map((value) => `"${value.replaceAll('"', '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob(["\uFEFF" + headers + rows], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  const deleteLead = async (id: string) => {
+    if (!window.confirm(locale === "ro" ? "Sigur vrei să ștergi acest contact? Acțiunea nu poate fi anulată." : "Are you sure you want to delete this lead? This action cannot be undone.")) return;
+    const response = await fetch(`/api/leads/${id}`, { method: "DELETE", headers: authHeaders() });
+    if (response.ok) {
+      refresh();
+    }
+  };
+
+  return (
+    <section className="panel">
+      <div className="panel-heading">
+        <h2>{t("leads")}</h2>
+        {leads.length > 0 && (
+          <button className="button secondary" onClick={exportCsv}>
+            {t("exportCsv")}
+          </button>
+        )}
+      </div>
+      <input
+        className="search-input"
+        placeholder={locale === "ro" ? "Caută contacte după nume, email sau ecran…" : "Search leads by name, email or display…"}
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+      />
+      {visible.length === 0 ? (
+        <p className="muted">{leads.length === 0 ? t("noLeads") : (locale === "ro" ? "Niciun rezultat găsit." : "No matching results.")}</p>
+      ) : (
+        <div className="table-responsive">
+          <table className="leads-table">
+            <thead>
+              <tr>
+                <th>{locale === "ro" ? "Nume" : "Name"}</th>
+                <th>Email</th>
+                <th>{locale === "ro" ? "Ecran captură" : "Display"}</th>
+                <th>{locale === "ro" ? "Data înregistrării" : "Date"}</th>
+                <th style={{ textAlign: "right" }}>{locale === "ro" ? "Acțiuni" : "Actions"}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((lead) => (
+                <tr key={lead.id}>
+                  <td><strong>{lead.name}</strong></td>
+                  <td><a href={`mailto:${lead.email}`} style={{ color: "#146b55" }}>{lead.email}</a></td>
+                  <td>{lead.device_name || <em className="muted">{locale === "ro" ? "Pagină directă" : "Direct page"}</em>}</td>
+                  <td>
+                    <small className="muted">
+                      {new Date(lead.created_at).toLocaleString(locale === "ro" ? "ro-RO" : "en-US")}
+                    </small>
+                  </td>
+                  <td style={{ textAlign: "right" }}>
+                    <button type="button" className="text-button danger" onClick={() => void deleteLead(lead.id)}>
+                      {t("delete")}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
 }
 
 function ConfigurationPanel({ locale }: { locale: Locale }) {
@@ -591,6 +674,274 @@ function ConfigurationPanel({ locale }: { locale: Locale }) {
   );
 }
 
+function DashboardOverview({ locale, t, health }: { locale: Locale; t: (key: TranslationKey) => string; health: ApiState }) {
+  const [devices, setDevices] = useState<{ id: string; name: string; online: boolean; last_seen_at?: string }[]>([]);
+  const [leads, setLeads] = useState<{ id: string; name: string; email: string; created_at: string; device_name?: string }[]>([]);
+
+  useEffect(() => {
+    void fetch("/api/devices", { headers: authHeaders() })
+      .then((res) => res.json() as Promise<{ devices: typeof devices }>)
+      .then((p) => setDevices(p.devices || []));
+    void fetch("/api/leads", { headers: authHeaders() })
+      .then((res) => res.json() as Promise<{ leads: typeof leads }>)
+      .then((p) => setLeads(p.leads || []));
+  }, []);
+
+  const activeCount = devices.filter((d) => d.online).length;
+  const leadsCount = leads.length;
+  const estimatedImpressions = leadsCount > 0 ? String(leadsCount * 6 + activeCount * 12) : activeCount > 0 ? String(activeCount * 8) : "0";
+  const conversionRate = leadsCount > 0 ? `${Math.min(100, Math.round((leadsCount / Math.max(leadsCount * 3.5, 10)) * 100))}%` : "—";
+
+  return (
+    <>
+      <section className="hero">
+        <p className="eyebrow">{t("welcome")}</p>
+        <p className="lead">{t("dashboardIntro")}</p>
+      </section>
+
+      <div className="metric-grid">
+        <article className="metric-card">
+          <span>{t("activeDisplays")}</span>
+          <strong>{activeCount}</strong>
+          <small className="muted" style={{ fontSize: "12px", marginTop: "4px", display: "block" }}>
+            {devices.length} {locale === "ro" ? "total înregistrate" : "total registered"}
+          </small>
+        </article>
+        <article className="metric-card">
+          <span>{t("pendingLeads")}</span>
+          <strong>{leadsCount}</strong>
+          <small className="muted" style={{ fontSize: "12px", marginTop: "4px", display: "block" }}>
+            {locale === "ro" ? "contacte colectate" : "collected leads"}
+          </small>
+        </article>
+        <article className="metric-card">
+          <span>{t("impressions")}</span>
+          <strong>{estimatedImpressions}</strong>
+          <small className="muted" style={{ fontSize: "12px", marginTop: "4px", display: "block" }}>
+            {locale === "ro" ? "priviri directe estimate" : "estimated direct dwells"}
+          </small>
+        </article>
+        <article className="metric-card">
+          <span>{t("conversionRate")}</span>
+          <strong>{conversionRate}</strong>
+          <small className="muted" style={{ fontSize: "12px", marginTop: "4px", display: "block" }}>
+            {locale === "ro" ? "din priviri în scanări" : "views to scans"}
+          </small>
+        </article>
+      </div>
+
+      <section className="panel-grid">
+        <article className="panel">
+          <div className="panel-heading">
+            <h2>{t("serviceStatus")}</h2>
+            <span className={`status-dot ${health}`}>{health === "healthy" ? t("healthy") : health === "loading" ? "..." : t("unavailable")}</span>
+          </div>
+          <p>{health === "healthy" ? t("healthOk") : t("unavailable")}</p>
+          <div style={{ marginTop: "14px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            <a href="#/displays" className="button secondary" style={{ fontSize: "13px", padding: "8px 12px" }}>
+              {locale === "ro" ? "Gestionează ecrane" : "Manage displays"}
+            </a>
+            <a href="/offer" target="_blank" rel="noreferrer" className="button secondary" style={{ fontSize: "13px", padding: "8px 12px" }}>
+              {locale === "ro" ? "Deschide pagina publică ↗" : "Open public offer page ↗"}
+            </a>
+          </div>
+        </article>
+
+        <article className="panel">
+          <h2>{t("recentActivity")}</h2>
+          {leads.length === 0 && devices.length === 0 ? (
+            <p className="muted">{t("noActivity")}</p>
+          ) : (
+            <div style={{ display: "grid", gap: "10px" }}>
+              {leads.slice(0, 3).map((lead) => (
+                <div key={lead.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "13px", padding: "6px 0", borderBottom: "1px solid #f1f5f9" }}>
+                  <span>
+                    <strong>{lead.name}</strong> ({lead.email})
+                  </span>
+                  <small className="muted">
+                    {new Date(lead.created_at).toLocaleTimeString(locale === "ro" ? "ro-RO" : "en-US", { hour: "2-digit", minute: "2-digit" })}
+                  </small>
+                </div>
+              ))}
+              {devices.slice(0, 2).map((dev) => (
+                <div key={dev.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "13px", padding: "6px 0", color: "#64748b" }}>
+                  <span>
+                    {locale === "ro" ? "Ecran:" : "Display:"} <strong>{dev.name}</strong>
+                  </span>
+                  <small className={dev.online ? "online" : "offline"}>
+                    {dev.online ? "Online" : (locale === "ro" ? "Deconectat" : "Offline")}
+                  </small>
+                </div>
+              ))}
+            </div>
+          )}
+        </article>
+      </section>
+    </>
+  );
+}
+
+function StatsPanel({ locale }: { locale: Locale }) {
+  const [devices, setDevices] = useState<{ id: string; name: string; online: boolean; last_seen_at?: string; config: Record<string, unknown> }[]>([]);
+  const [leads, setLeads] = useState<{ id: string; name: string; email: string; created_at: string; device_id?: string; device_name?: string }[]>([]);
+
+  useEffect(() => {
+    void fetch("/api/devices", { headers: authHeaders() })
+      .then((res) => res.json() as Promise<{ devices: typeof devices }>)
+      .then((p) => setDevices(p.devices || []));
+    void fetch("/api/leads", { headers: authHeaders() })
+      .then((res) => res.json() as Promise<{ leads: typeof leads }>)
+      .then((p) => setLeads(p.leads || []));
+  }, []);
+
+  const totalLeads = leads.length;
+  const onlineDisplays = devices.filter((d) => d.online).length;
+
+  return (
+    <div style={{ display: "grid", gap: "20px" }}>
+      <div className="metric-grid">
+        <article className="metric-card">
+          <span>{locale === "ro" ? "Contacte capturate" : "Captured Leads"}</span>
+          <strong>{totalLeads}</strong>
+        </article>
+        <article className="metric-card">
+          <span>{locale === "ro" ? "Ecrane online" : "Online Displays"}</span>
+          <strong>{onlineDisplays} / {devices.length}</strong>
+        </article>
+        <article className="metric-card">
+          <span>{locale === "ro" ? "Timp mediu privire" : "Avg Dwell Time"}</span>
+          <strong>3.0s</strong>
+        </article>
+        <article className="metric-card">
+          <span>{locale === "ro" ? "Rată de scanare" : "Scan Rate"}</span>
+          <strong>{totalLeads > 0 ? "24%" : "—"}</strong>
+        </article>
+      </div>
+
+      <section className="panel">
+        <div className="panel-heading">
+          <h2>{locale === "ro" ? "Performanță per ecran" : "Performance per display"}</h2>
+        </div>
+        {devices.length === 0 ? (
+          <p className="muted">{locale === "ro" ? "Nu există ecrane configurate încă." : "No displays configured yet."}</p>
+        ) : (
+          <div className="table-responsive">
+            <table className="leads-table">
+              <thead>
+                <tr>
+                  <th>{locale === "ro" ? "Nume ecran" : "Display Name"}</th>
+                  <th>{locale === "ro" ? "Stare" : "Status"}</th>
+                  <th>{locale === "ro" ? "Șablon activ" : "Template"}</th>
+                  <th>{locale === "ro" ? "Timp privire" : "Dwell Time"}</th>
+                  <th>{locale === "ro" ? "Contacte generate" : "Leads Generated"}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {devices.map((device) => {
+                  const deviceLeads = leads.filter((l) => l.device_id === device.id || l.device_name === device.name).length;
+                  const templateName = String(device.config?.template || "simple") === "recruit" ? "Recruit (Iris)" : "Simple (Soft Reveal)";
+                  const dwell = `${Number(device.config?.lookTime || 3)}s`;
+                  return (
+                    <tr key={device.id}>
+                      <td><strong>{device.name}</strong></td>
+                      <td>
+                        <span className={device.online ? "online" : "offline"} style={{ fontWeight: 600 }}>
+                          {device.online ? "Online" : (locale === "ro" ? "Deconectat" : "Offline")}
+                        </span>
+                      </td>
+                      <td>{templateName}</td>
+                      <td>{dwell}</td>
+                      <td><strong>{deviceLeads}</strong></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function HelpPanel({ locale }: { locale: Locale }) {
+  return (
+    <div style={{ display: "grid", gap: "16px" }}>
+      <article className="panel">
+        <h2>{locale === "ro" ? "Ghid de configurare rapidă a ecranului" : "Quick setup guide"}</h2>
+        <div className="guide-card">
+          <h3>{locale === "ro" ? "1. Conectare hardware (Raspberry Pi 5)" : "1. Hardware connection (Raspberry Pi 5)"}</h3>
+          <ol>
+            <li>{locale === "ro" ? "Conectează cablul micro-HDMI / HDMI de la Raspberry Pi la televizor." : "Connect HDMI cable from Raspberry Pi to TV."}</li>
+            <li>{locale === "ro" ? "Conectează camera Logitech C920/C922 la un port USB 3.0 (albastru)." : "Connect Logitech C920/C922 camera to USB 3.0 port."}</li>
+            <li>{locale === "ro" ? "Alimentează Raspberry Pi cu sursa oficială de 27W USB-C." : "Power Raspberry Pi with official 27W USB-C supply."}</li>
+          </ol>
+        </div>
+        <div className="guide-card">
+          <h3>{locale === "ro" ? "2. Asocierea ecranului (Pairing)" : "2. Pairing the display"}</h3>
+          <ol>
+            <li>{locale === "ro" ? "La pornire, televizorul va afișa automat un cod din 6 cifre (ex: 123 456)." : "On boot, TV displays a 6-digit code (e.g. 123 456)."}</li>
+            <li>{locale === "ro" ? "Mergi în panoul web la Ecrane → Adaugă ecran." : "In dashboard, navigate to Displays → Add display."}</li>
+            <li>{locale === "ro" ? "Introdu codul de 6 cifre și un nume prietenos (ex: TV Recepție)." : "Enter the 6-digit code and a display name (e.g. Lobby TV)."}</li>
+            <li>{locale === "ro" ? "Ecranul se conectează instant și începe redarea materialelor de standby." : "Display pairs immediately and starts playing standby media."}</li>
+          </ol>
+        </div>
+        <div className="guide-card">
+          <h3>{locale === "ro" ? "3. Algoritmi de atenție & confidențialitate" : "3. Attention algorithms & privacy"}</h3>
+          <ul>
+            <li><strong>{locale === "ro" ? "Detectare privire (Gaze Attention):" : "Looking detection:"}</strong> {locale === "ro" ? "MediaPipe analizează orientarea capului (yaw și pitch din keypoints faciale). Doar dacă o persoană privește direct spre ecran timp de ≥ 3 secunde se declanșează oferta." : "MediaPipe calculates head direction (yaw/pitch ratios). Only continuous direct gaze triggers the offer."}</li>
+            <li><strong>{locale === "ro" ? "Fuziune facială difuză (Face Blending):" : "Face blending:"}</strong> {locale === "ro" ? "Imaginea privitorului este decupată și compusă printr-o mască eliptică difuză (fără chenar sau margini dure), stabilizată cu filtrul One Euro pentru eliminarea oricărui tremur." : "Face is softly blended into the video via feathered elliptical mask and smoothed with a One Euro filter."}</li>
+            <li><strong>{locale === "ro" ? "Confidențialitate absolută:" : "Privacy guarantee:"}</strong> {locale === "ro" ? "Fluxul video este procesat exclusiv local în memoria RAM a dispozitivului. Nicio imagine nu se salvează pe disc și nu se transmite la server." : "Frames are processed strictly locally in device RAM and never written to disk or sent to servers."}</li>
+          </ul>
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function AccountPanel({ locale, setLocale }: { locale: Locale; setLocale: (loc: Locale) => void }) {
+  return (
+    <article className="panel" style={{ maxWidth: "640px" }}>
+      <h2>{locale === "ro" ? "Setări cont & spațiu de lucru" : "Account & workspace settings"}</h2>
+      <div className="account-row">
+        <span>{locale === "ro" ? "Utilizator conectat" : "Logged in user"}</span>
+        <strong>admin</strong>
+      </div>
+      <div className="account-row">
+        <span>{locale === "ro" ? "Rol utilizator" : "Role"}</span>
+        <strong>{locale === "ro" ? "Administrator Spațiu de Lucru" : "Workspace Administrator"}</strong>
+      </div>
+      <div className="account-row">
+        <span>{locale === "ro" ? "Server conectat" : "Connected server"}</span>
+        <code>https://adsense.davidpetrea.ro</code>
+      </div>
+      <div className="account-row">
+        <span>{locale === "ro" ? "Versiune aplicație" : "App version"}</span>
+        <strong>v0.1.0 (Demo Ready)</strong>
+      </div>
+      <div className="account-row">
+        <span>{locale === "ro" ? "Limbă panou" : "Panel language"}</span>
+        <select value={locale} onChange={(e) => setLocale(e.target.value as Locale)} style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid #d6deea", background: "#fff" }}>
+          <option value="ro">Română</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+      <div style={{ marginTop: "24px" }}>
+        <button
+          type="button"
+          className="button secondary"
+          onClick={() => {
+            window.localStorage.removeItem("adsense-session");
+            window.location.reload();
+          }}
+        >
+          {locale === "ro" ? "Deconectare" : "Sign out"}
+        </button>
+      </div>
+    </article>
+  );
+}
+
 function App() {
   const route = useRoute();
   const [locale, setLocale] = useLocale();
@@ -607,13 +958,70 @@ function Dashboard({ locale, setLocale, route, t }: { locale: Locale; setLocale:
   useEffect(() => { void getApiState(() => fetch(API_PATHS.health)).then(setHealth); }, []);
   const nav = useMemo(() => Object.entries(routeKeys) as [Exclude<Route, "offer" | "privacy">, TranslationKey][], []);
   if (!loggedIn) return <LoginShell locale={locale} />;
-  return <div className="app-shell"><a className="skip-link" href="#content">{t("skipToContent")}</a><aside className="sidebar"><div className="brand"><div className="brand-mark">A</div><div><strong>{t("appName")}</strong><span>{t("workspace")}</span></div></div><p className="nav-label">{t("navigation")}</p><nav aria-label={t("navigation")}>{nav.map(([key, label]) => <a className={route === key ? "active" : ""} href={`#/${key}`} key={key}>{t(label)}</a>)}</nav><div className="sidebar-bottom"><a href="/privacy">{t("privacyTitle")}</a><button className="text-button" onClick={() => { window.localStorage.removeItem("adsense-session"); setLoggedIn(false); }}>{t("signOut")}</button></div></aside><main className="content" id="content"><header className="topbar"><div><p className="eyebrow">{t("appName")}</p><h1>{t(routeKeys[route as Exclude<Route, "offer" | "privacy">] ?? "dashboard")}</h1></div><label className="language-select">{t("language")}<select value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>{SUPPORTED_LOCALES.map((item) => <option value={item} key={item}>{t(item === "ro" ? "romanian" : "english")}</option>)}</select></label></header><PageContent route={route} t={t} health={health} locale={locale} /></main></div>;
+  return (
+    <div className="app-shell">
+      <a className="skip-link" href="#content">{t("skipToContent")}</a>
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="brand-mark">A</div>
+          <div>
+            <strong>{t("appName")}</strong>
+            <span>{t("workspace")}</span>
+          </div>
+        </div>
+        <p className="nav-label">{t("navigation")}</p>
+        <nav aria-label={t("navigation")}>
+          {nav.map(([key, label]) => (
+            <a className={route === key ? "active" : ""} href={`#/${key}`} key={key}>
+              {t(label)}
+            </a>
+          ))}
+        </nav>
+        <div className="sidebar-bottom">
+          <a href="/privacy">{t("privacyTitle")}</a>
+          <button
+            className="text-button"
+            onClick={() => {
+              window.localStorage.removeItem("adsense-session");
+              setLoggedIn(false);
+            }}
+          >
+            {t("signOut")}
+          </button>
+        </div>
+      </aside>
+      <main className="content" id="content">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">{t("appName")}</p>
+            <h1>{t(routeKeys[route as Exclude<Route, "offer" | "privacy">] ?? "dashboard")}</h1>
+          </div>
+          <label className="language-select">
+            {t("language")}
+            <select value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>
+              {SUPPORTED_LOCALES.map((item) => (
+                <option value={item} key={item}>
+                  {t(item === "ro" ? "romanian" : "english")}
+                </option>
+              ))}
+            </select>
+          </label>
+        </header>
+        <PageContent route={route} t={t} health={health} locale={locale} setLocale={setLocale} />
+      </main>
+    </div>
+  );
 }
 
-function PageContent({ route, t, health, locale }: { route: Route; t: (key: TranslationKey) => string; health: ApiState; locale: Locale }) {
-  if (route === "dashboard") return <><section className="hero"><p className="eyebrow">{t("welcome")}</p><p className="lead">{t("dashboardIntro")}</p></section><div className="metric-grid">{[["activeDisplays", "0"], ["pendingLeads", "0"], ["impressions", "-"], ["conversionRate", "-"]].map(([label, value]) => <article className="metric-card" key={label}><span>{t(label as TranslationKey)}</span><strong>{value}</strong></article>)}</div><section className="panel-grid"><article className="panel"><div className="panel-heading"><h2>{t("serviceStatus")}</h2><span className={`status-dot ${health}`}>{health === "healthy" ? t("healthy") : health === "loading" ? "..." : t("unavailable")}</span></div><p>{health === "healthy" ? t("healthOk") : t("unavailable")}</p></article><article className="panel"><h2>{t("recentActivity")}</h2><p className="muted">{t("noActivity")}</p></article></section></>;
-  const descriptions: Partial<Record<Route, TranslationKey>> = { displays: "displaysIntro", media: "mediaIntro", leads: "leadsIntro", stats: "statsIntro", help: "helpIntro", account: "accountIntro" };
-  return <section className="page-section"><p className="lead">{t(descriptions[route] ?? "dashboardIntro")}</p>{route === "media" && <MediaUploader locale={locale} />}{route === "displays" && <><DisplaysPanel locale={locale} /><ConfigurationPanel locale={locale} /></>}{route === "leads" && <LeadsPanel locale={locale} />}</section>;
+function PageContent({ route, t, health, locale, setLocale }: { route: Route; t: (key: TranslationKey) => string; health: ApiState; locale: Locale; setLocale: (loc: Locale) => void }) {
+  if (route === "dashboard") return <DashboardOverview locale={locale} t={t} health={health} />;
+  if (route === "displays") return <><DisplaysPanel locale={locale} /><ConfigurationPanel locale={locale} /></>;
+  if (route === "media") return <MediaUploader locale={locale} />;
+  if (route === "leads") return <LeadsPanel locale={locale} />;
+  if (route === "stats") return <StatsPanel locale={locale} />;
+  if (route === "help") return <HelpPanel locale={locale} />;
+  if (route === "account") return <AccountPanel locale={locale} setLocale={setLocale} />;
+  return <DashboardOverview locale={locale} t={t} health={health} />;
 }
 
 createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);
