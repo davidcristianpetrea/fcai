@@ -1,5 +1,5 @@
 import { StrictMode, useEffect, useMemo, useState } from "react";
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import {
   API_PATHS,
@@ -16,6 +16,7 @@ type Route = "dashboard" | "displays" | "configuration" | "media" | "leads" | "s
 const routeKeys: Partial<Record<Exclude<Route, "offer" | "privacy">, TranslationKey>> = {
   dashboard: "dashboard",
   displays: "displays",
+  configuration: "configuration",
   media: "media",
   leads: "leads",
   account: "account",
@@ -141,10 +142,18 @@ function DisplaysPanel({ locale }: { locale: Locale }) {
   const t = (key: TranslationKey) => translate(locale, key);
   const [devices, setDevices] = useState<{ id: string; name: string; online: boolean }[]>([]);
   const [code, setCode] = useState("");
+  const [name, setName] = useState("");
+  const [notice, setNotice] = useState("");
   const refresh = () => { void fetch("/api/devices", { headers: authHeaders() }).then((response) => response.json() as Promise<{ devices: typeof devices }>).then((payload) => setDevices(payload.devices)); };
   useEffect(refresh, []);
-  const createCode = () => { void fetch("/api/devices/link", { method: "POST", headers: authHeaders() }).then((response) => response.json() as Promise<{ code: string }>).then((payload) => setCode(payload.code)); };
-  return <div className="panel-grid"><section className="panel"><h2>{t("linkDisplay")}</h2><button className="button primary" onClick={createCode}>{t("createLinkCode")}</button>{code && <p className="link-code">{t("linkCode")}: <strong>{code}</strong></p>}</section><section className="panel"><h2>{t("displays")}</h2>{devices.length === 0 ? <p>{t("noActivity")}</p> : devices.map((device) => <div className="upload-heading" key={device.id}><span>{device.name}</span><strong className={device.online ? "online" : "offline"}>{device.online ? t("connected") : t("offline")}</strong></div>)}</section></div>;
+  const pair = async (event: FormEvent) => {
+    event.preventDefault();
+    const response = await fetch("/api/devices/pair", { method: "POST", headers: { ...authHeaders(), "content-type": "application/json" }, body: JSON.stringify({ code, name }) });
+    if (!response.ok) { setNotice(locale === "ro" ? "Codul nu este valid sau a expirat." : "That code is invalid or expired."); return; }
+    setNotice(locale === "ro" ? "Ecranul a fost adaugat." : "Display added.");
+    setCode(""); setName(""); refresh();
+  };
+  return <div className="panel-grid"><section className="panel"><h2>{locale === "ro" ? "Adauga ecran" : "Add display"}</h2><p>{locale === "ro" ? "Introdu codul afisat pe televizor." : "Enter the code shown on the TV."}</p><form className="offer-form" onSubmit={pair}><label>{locale === "ro" ? "Cod din 6 cifre" : "6-digit code"}<input inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} required /></label><label>{locale === "ro" ? "Numele ecranului" : "Display name"}<input value={name} placeholder={`Ecran ${devices.length + 1}`} onChange={(event) => setName(event.target.value)} /></label><button className="button primary" type="submit">{locale === "ro" ? "Adauga" : "Add"}</button>{notice && <p className="notice">{notice}</p>}</form></section><section className="panel"><h2>{t("displays")}</h2>{devices.length === 0 ? <p>{t("noActivity")}</p> : devices.map((device) => <div className="upload-heading" key={device.id}><span>{device.name}</span><strong className={device.online ? "online" : "offline"}>{device.online ? t("connected") : t("offline")}</strong></div>)}</section></div>;
 }
 
 function LeadsPanel({ locale }: { locale: Locale }) {

@@ -7,13 +7,15 @@ import json
 
 
 class CloudLink(Protocol):
+    def pair_request(self) -> dict[str, Any]: ...
+    def pair_status(self, device_id: str, code: str) -> dict[str, Any]: ...
     def claim(self, code: str) -> dict[str, Any]: ...
     def sync(self, payload: dict[str, Any]) -> dict[str, Any]: ...
 
 
 @dataclass
 class HttpCloudLink:
-    base_url: str
+    base_url: str = "https://adsense.davidpetrea.ro"
     timeout: float = 10.0
 
     def sync(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -25,6 +27,16 @@ class HttpCloudLink:
             headers={"content-type": "application/json"},
             method="POST",
         )
+        with urlopen(request, timeout=self.timeout) as response:
+            return json.loads(response.read())
+
+    def pair_request(self) -> dict[str, Any]:
+        request = Request(f"{self.base_url.rstrip('/')}/api/device/pair-request", method="POST")
+        with urlopen(request, timeout=self.timeout) as response:
+            return json.loads(response.read())
+
+    def pair_status(self, device_id: str, code: str) -> dict[str, Any]:
+        request = Request(f"{self.base_url.rstrip('/')}/api/device/pair-status?deviceId={device_id}&code={code}")
         with urlopen(request, timeout=self.timeout) as response:
             return json.loads(response.read())
     def claim(self, code: str) -> dict[str, Any]:

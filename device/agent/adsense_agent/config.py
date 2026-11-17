@@ -10,8 +10,8 @@ class AgentConfig:
     host: str = "127.0.0.1"
     http_port: int = 8765
     websocket_port: int = 8766
-    device_id: str = "dev-display"
-    cloud_base_url: str = ""
+    device_id: str = "display"
+    cloud_base_url: str = "https://adsense.davidpetrea.ro"
     link_code: str = ""
     data_dir: Path = Path("data")
     platform: str = "auto"

@@ -58,13 +58,45 @@ app.get("/api/devices", (c) => {
   const rows = db.prepare("SELECT id, name, language, last_seen_at, last_status, config_json FROM devices ORDER BY name").all() as { id: string; name: string; language: string; last_seen_at?: string; last_status?: string; config_json: string }[];
   return c.json({ devices: rows.map((row) => ({ ...row, online: Boolean(row.last_seen_at && Date.now() - Date.parse(row.last_seen_at) <= 90_000), config: JSON.parse(row.config_json) })) });
 });
-app.post("/api/devices/link", (c) => {
-  if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
-  const deviceId = `pc-${crypto.randomUUID().slice(0, 8)}`;
+app.post("/api/device/pair-request", (c) => {
+  const deviceId = `display-${crypto.randomUUID().slice(0, 8)}`;
+  const now = Date.now();
   const code = String(Math.floor(100000 + Math.random() * 900000));
-  db.prepare("INSERT INTO devices(id, name, device_secret_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(deviceId, "PC test display", "link-code", new Date().toISOString(), new Date().toISOString());
-  db.prepare("INSERT INTO link_codes(code, device_id, expires_at) VALUES (?, ?, ?)").run(code, deviceId, Date.now() + 15 * 60_000);
-  return c.json({ deviceId, code, expiresAt: Date.now() + 15 * 60_000 });
+  db.prepare("INSERT INTO devices(id, name, device_secret_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(deviceId, "Ecran nou", "pending-pairing", new Date(now).toISOString(), new Date(now).toISOString());
+  db.prepare("INSERT INTO pair_requests(device_id, code, expires_at, created_at) VALUES (?, ?, ?, ?)").run(deviceId, code, now + 10 * 60_000, new Date(now).toISOString());
+  return c.json({ deviceId, code, expiresAt: now + 10 * 60_000, locale: DEFAULT_LOCALE });
+});
+app.get("/api/device/pair-status", (c) => {
+  const deviceId = c.req.query("deviceId") ?? "";
+  const code = c.req.query("code") ?? "";
+  const row = db.prepare("SELECT p.code, p.expires_at, p.bound_at, d.name, d.config_json FROM pair_requests p JOIN devices d ON d.id = p.device_id WHERE p.device_id = ? AND p.code = ?").get(deviceId, code) as { code: string; expires_at: number; bound_at?: string; name: string; config_json: string } | undefined;
+  if (!row) return c.json({ error: "not_found" }, 404);
+  if (!row.bound_at && row.expires_at <= Date.now()) {
+    const nextCode = String(Math.floor(100000 + Math.random() * 900000));
+    const nextExpiry = Date.now() + 10 * 60_000;
+    db.prepare("UPDATE pair_requests SET code = ?, expires_at = ? WHERE device_id = ?").run(nextCode, nextExpiry, deviceId);
+    return c.json({ paired: false, code: nextCode, expiresAt: nextExpiry });
+  }
+  if (!row.bound_at) return c.json({ paired: false, code: row.code, expiresAt: row.expires_at });
+  const now = Math.floor(Date.now() / 1000);
+  return c.json({
+    paired: true,
+    deviceId,
+    name: row.name,
+    config: JSON.parse(row.config_json),
+    token: createSessionToken({ subject: deviceId, kind: "device", deviceId, issuedAt: now, expiresAt: now + 31_536_000 }, sessionSecret),
+  });
+});
+app.post("/api/devices/pair", async (c) => {
+  if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
+  const body = await c.req.json<{ code?: string; name?: string }>();
+  const row = body.code ? db.prepare("SELECT device_id FROM pair_requests WHERE code = ? AND bound_at IS NULL AND expires_at > ?").get(body.code, Date.now()) as { device_id: string } | undefined : undefined;
+  if (!row) return c.json({ error: "invalid_pair_code" }, 400);
+  const name = body.name?.trim() || "Ecran nou";
+  const now = new Date().toISOString();
+  db.prepare("UPDATE devices SET name = ?, device_secret_hash = ?, updated_at = ? WHERE id = ?").run(name, "paired-device", now, row.device_id);
+  db.prepare("UPDATE pair_requests SET bound_at = ? WHERE device_id = ?").run(now, row.device_id);
+  return c.json({ ok: true, deviceId: row.device_id, name });
 });
 app.post("/api/device/claim", async (c) => {
   const body = await c.req.json<{ code?: string }>();
@@ -76,6 +108,13 @@ app.post("/api/device/claim", async (c) => {
     deviceId: row.device_id,
     token: createSessionToken({ subject: row.device_id, kind: "device", deviceId: row.device_id, issuedAt: now, expiresAt: now + 31_536_000 }, sessionSecret),
     config: {},
+  });
+  app.post("/api/devices/:id/reset", (c) => {
+    if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
+    const id = c.req.param("id");
+    db.prepare("DELETE FROM pair_requests WHERE device_id = ?").run(id);
+    db.prepare("UPDATE devices SET device_secret_hash = ?, config_json = '{}', updated_at = ? WHERE id = ?").run("pending-pairing", new Date().toISOString(), id);
+    return c.json({ ok: true });
   });
 });
 app.get("/api/assets", (c) => {

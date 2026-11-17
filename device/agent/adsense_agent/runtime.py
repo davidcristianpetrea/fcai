@@ -44,6 +44,12 @@ class AgentRuntime:
             claimed = await asyncio.to_thread(self.cloud.claim, self.config.link_code)
             if claimed.get("token"):
                 self.store.merge({"device_token": claimed["token"], "device_config": claimed.get("config", {})})
+        elif self.config.cloud_base_url and not self.store.read().get("device_token"):
+            pairing = self.store.read().get("pairing")
+            if not pairing:
+                pairing = await asyncio.to_thread(self.cloud.pair_request)
+                self.store.merge({"pairing": pairing})
+            asyncio.create_task(self._pairing_loop())
         boundary = LocalBoundary(
             self.config.host,
             self.config.http_port,
@@ -53,6 +59,19 @@ class AgentRuntime:
         )
         self.http_server = boundary.start_http()
         self.websocket_server = await boundary.start_websocket()
+
+    async def _pairing_loop(self) -> None:
+        while not self.store.read().get("device_token"):
+            pairing = self.store.read().get("pairing", {})
+            try:
+                status = await asyncio.to_thread(self.cloud.pair_status, pairing["deviceId"], pairing["code"])
+                self.store.merge({"pairing": status})
+                if status.get("paired") and status.get("token"):
+                    self.store.merge({"device_id": status["deviceId"], "device_token": status["token"], "device_config": status.get("config", {}), "pairing": status})
+                    return
+            except Exception:
+                pass
+            await asyncio.sleep(3)
 
     async def stop(self) -> None:
         if self.websocket_server:
