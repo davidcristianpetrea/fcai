@@ -9,6 +9,6 @@
     "build:renderer": "pnpm --filter @adsense/renderer build",
     "gen:shared": "pnpm --filter @adsense/shared generate",
     "typecheck": "pnpm --filter @adsense/shared typecheck && pnpm --filter @adsense/web typecheck",
-    "test": "pnpm --filter @adsense/shared build && pnpm --filter @adsense/shared test && pnpm --filter @adsense/web test"
+    "test": "pnpm --filter @adsense/shared build && pnpm --filter @adsense/shared test && pnpm --filter @adsense/web test && pnpm --filter @adsense/renderer test"
   }
 }
