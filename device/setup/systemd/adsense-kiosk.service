@@ -9,6 +9,7 @@ User=adsense
 Group=adsense
 Environment=XDG_RUNTIME_DIR=/run/user/1001
 Environment=DISPLAY=:0
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/cage -- /opt/adsense/chromium-kiosk.sh
 Restart=always
 RestartSec=5
