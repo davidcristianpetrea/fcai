@@ -9,6 +9,7 @@ import json
 class CloudLink(Protocol):
     def pair_request(self) -> dict[str, Any]: ...
     def pair_status(self, device_id: str, code: str) -> dict[str, Any]: ...
+    def download_media(self, asset_id: str, token: str, destination) -> None: ...
     def claim(self, code: str) -> dict[str, Any]: ...
     def sync(self, payload: dict[str, Any], token: str = "") -> dict[str, Any]: ...
 
@@ -39,6 +40,12 @@ class HttpCloudLink:
         request = Request(f"{self.base_url.rstrip('/')}/api/device/pair-status?deviceId={device_id}&code={code}")
         with urlopen(request, timeout=self.timeout) as response:
             return json.loads(response.read())
+
+    def download_media(self, asset_id: str, token: str, destination) -> None:
+        request = Request(f"{self.base_url.rstrip('/')}/api/device/media/{asset_id}", headers={"authorization": f"Bearer {token}"})
+        with urlopen(request, timeout=self.timeout) as response, destination.open("wb") as output:
+            while chunk := response.read(1024 * 1024):
+                output.write(chunk)
     def claim(self, code: str) -> dict[str, Any]:
         if not self.base_url:
             return {"ok": False, "reason": "cloud_not_configured"}

@@ -20,10 +20,12 @@ class LocalBoundary:
     state: Callable[[], dict[str, Any]]
     on_message: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
     renderer_dir: Path | None = None
+    media_dir: Path | None = None
 
     def start_http(self) -> ThreadingHTTPServer:
         state = self.state
         renderer_dir = self.renderer_dir
+        media_dir = self.media_dir
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:
@@ -33,6 +35,9 @@ class LocalBoundary:
                 elif self.path == "/api/state":
                     body = state()
                     content_type = "application/json"
+                elif self.path.startswith("/media/"):
+                    self._serve_file((media_dir or Path.cwd()) / self.path.removeprefix("/media/"))
+                    return
                 elif self.path == "/" or (renderer_dir and (renderer_dir / self.path.lstrip("/")).is_file()):
                     relative = "index.html" if self.path == "/" else self.path.lstrip("/")
                     file_path = (renderer_dir or Path.cwd()) / relative

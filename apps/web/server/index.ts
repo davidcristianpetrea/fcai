@@ -250,7 +250,8 @@ app.post("/api/device/sync", async (c) => {
     "INSERT INTO devices(id, name, device_secret_hash, last_seen_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET last_seen_at = excluded.last_seen_at",
   ).run(body.device_id, body.device_id, "legacy-sync", now);
   const row = db.prepare("SELECT name, config_json FROM devices WHERE id = ?").get(body.device_id) as { name: string; config_json: string } | undefined;
-  return c.json({ ok: true, device_id: body.device_id, name: row?.name ?? body.device_id, config: row ? JSON.parse(row.config_json) : body.config ?? null, state: body.state ?? null });
+  const media = db.prepare("SELECT id, filename, content_type, size_bytes FROM assets WHERE state = 'ready' ORDER BY created_at").all();
+  return c.json({ ok: true, device_id: body.device_id, name: row?.name ?? body.device_id, config: row ? JSON.parse(row.config_json) : body.config ?? null, media, state: body.state ?? null });
 });
 app.get("/api/device/media/:id", async (c) => {
   const claims = admin(c.req.raw);

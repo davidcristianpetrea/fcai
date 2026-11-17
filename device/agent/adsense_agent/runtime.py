@@ -44,7 +44,7 @@ class AgentRuntime:
         if self.config.link_code and self.config.cloud_base_url:
             claimed = await asyncio.to_thread(self.cloud.claim, self.config.link_code)
             if claimed.get("token"):
-                self.store.merge({"device_token": claimed["token"], "device_config": claimed.get("config", {})})
+                self.store.merge({"device_id": claimed.get("deviceId", self.config.device_id), "device_token": claimed["token"], "device_config": claimed.get("config", {})})
         elif self.config.cloud_base_url and not self.store.read().get("device_token"):
             pairing = self.store.read().get("pairing")
             if not pairing:
@@ -64,6 +64,7 @@ class AgentRuntime:
             self.state,
             self.handle_message,
             renderer_dir=Path(__file__).resolve().parents[2] / "renderer" / "public",
+            media_dir=self.config.data_dir / "media",
         )
         self.http_server = boundary.start_http()
         self.websocket_server = await boundary.start_websocket()
@@ -90,7 +91,15 @@ class AgentRuntime:
                 continue
             try:
                 synced = await asyncio.to_thread(self.cloud.sync, {"device_id": current.get("device_id", self.config.device_id)}, token)
-                self.store.merge({"device_config": synced.get("config", {}), "display_name": synced.get("name", self.config.device_id), "last_sync": synced})
+                media_dir = self.config.data_dir / "media"
+                media_dir.mkdir(parents=True, exist_ok=True)
+                manifest = []
+                for item in synced.get("media", []):
+                    target = media_dir / item["id"]
+                    if not target.is_file() or target.stat().st_size != int(item.get("size_bytes") or 0):
+                        await asyncio.to_thread(self.cloud.download_media, item["id"], token, target)
+                    manifest.append({**item, "local": f"/media/{item['id']}"})
+                self.store.merge({"device_config": synced.get("config", {}), "display_name": synced.get("name", self.config.device_id), "media": manifest, "last_sync": synced})
             except Exception:
                 pass
             await asyncio.sleep(5)

@@ -11,8 +11,10 @@ function setup(pairing) {
   root.innerHTML = `<section class="setup"><h1>${english ? "Go to adsense.davidpetrea.ro → Add display and enter this code:" : "Mergi pe adsense.davidpetrea.ro → Adaugă ecran și introdu codul:"}</h1><p class="code">${code.slice(0, 3)} ${code.slice(3)}</p></section>`;
 }
 
-function standby() {
-  root.innerHTML = '<section class="standby"><h1>STANDBY</h1></section><div class="bubbles"></div>';
+function standby(media) {
+  const first = media?.[0];
+  const content = first ? (first.content_type?.startsWith("video/") ? `<video src="${first.local}" autoplay muted loop playsinline></video>` : `<img src="${first.local}" alt="">`) : "<h1>STANDBY</h1>";
+  root.innerHTML = `<section class="standby">${content}</section><div class="bubbles"></div>`;
 }
 
 function offer(config) {
@@ -29,7 +31,7 @@ function render(next) {
   lastPhase = phase;
   if (!paired) setup(pairing);
   else if (phase === "offer") offer(state.sync?.device_config || {});
-  else standby();
+  else standby(state.sync?.media);
 }
 
 function renderFaces(message) {
