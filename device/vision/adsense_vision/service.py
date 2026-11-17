@@ -54,15 +54,15 @@ class VisionService:
         tracks = self.tracker.update(filtered, timestamp_ms)
         self.attention.update(tracks, timestamp_ms)
 
-        # Extract crops for active faces
+        # Extract crops for active faces detected in the current frame
         for track in tracks:
-            if timestamp_ms - track.last_seen_ms <= 600 and frame is not None:
+            if track.last_seen_ms == timestamp_ms and frame is not None:
                 track.crop_jpeg = extract_face_crop(frame, track.box)
 
         faces = tuple(
             self._face_from_track(track)
             for track in tracks
-            if timestamp_ms - track.last_seen_ms <= 600
+            if track.last_seen_ms == timestamp_ms
         )
 
         self.last_analysis_ms = (time.monotonic() - start_time) * 1000.0

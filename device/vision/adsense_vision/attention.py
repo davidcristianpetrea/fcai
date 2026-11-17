@@ -7,9 +7,9 @@ from typing import Any
 
 from .models import Track
 
-YAW_MAX = float(os.getenv("ADSENSE_YAW_MAX", "0.18"))
-PITCH_MIN = float(os.getenv("ADSENSE_PITCH_MIN", "0.35"))
-PITCH_MAX = float(os.getenv("ADSENSE_PITCH_MAX", "0.75"))
+YAW_MAX = float(os.getenv("ADSENSE_YAW_MAX", "0.28"))
+PITCH_MIN = float(os.getenv("ADSENSE_PITCH_MIN", "0.20"))
+PITCH_MAX = float(os.getenv("ADSENSE_PITCH_MAX", "0.90"))
 
 
 def compute_head_pose(
@@ -101,11 +101,11 @@ class AttentionMachine:
                     track.looking_since_ms = timestamp_ms
                 track.looking = True
             else:
-                track.looking = False
                 if track.not_looking_since_ms is None:
                     track.not_looking_since_ms = timestamp_ms
                 elif timestamp_ms - track.not_looking_since_ms > self.config.looking_reset_seconds * 1000:
                     track.looking_since_ms = None
+                track.looking = track.looking_since_ms is not None
 
     def update(self, tracks: list[Track], timestamp_ms: int) -> AttentionState:
         self.update_looking(tracks, timestamp_ms)

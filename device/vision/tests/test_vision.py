@@ -37,23 +37,23 @@ class HeadPoseLookingTests(unittest.TestCase):
         self.assertAlmostEqual(pitch_deg, -5.0, places=1)
 
     def test_turned_head_exceeds_yaw_threshold(self):
-        # nose turned to the right side (0.55): yaw_ratio = (0.55 - 0.5) / 0.2 = 0.25 > YAW_MAX (0.18)
+        # nose turned to the right side (0.58): yaw_ratio = (0.58 - 0.5) / 0.2 = 0.40 > YAW_MAX (0.28)
         keypoints = [
             (0.4, 0.3),
             (0.6, 0.3),
-            (0.55, 0.425),
+            (0.58, 0.425),
             (0.5, 0.55),
         ]
         yaw_ratio, pitch_ratio, _, _, looking = compute_head_pose(keypoints)
-        self.assertAlmostEqual(yaw_ratio, 0.25, places=3)
+        self.assertAlmostEqual(yaw_ratio, 0.40, places=3)
         self.assertFalse(looking)
 
     def test_looking_down_exceeds_pitch_max(self):
-        # nose shifted down towards mouth (0.51): pitch_ratio = (0.51 - 0.3) / 0.25 = 0.84 > PITCH_MAX (0.75)
+        # nose shifted down towards mouth (0.54): pitch_ratio = (0.54 - 0.3) / 0.25 = 0.96 > PITCH_MAX (0.90)
         keypoints = [
             (0.4, 0.3),
             (0.6, 0.3),
-            (0.5, 0.51),
+            (0.5, 0.54),
             (0.5, 0.55),
         ]
         _, pitch_ratio, _, _, looking = compute_head_pose(keypoints)
@@ -61,16 +61,29 @@ class HeadPoseLookingTests(unittest.TestCase):
         self.assertFalse(looking)
 
     def test_looking_up_below_pitch_min(self):
-        # nose shifted up towards eyes (0.36): pitch_ratio = (0.36 - 0.3) / 0.25 = 0.24 < PITCH_MIN (0.35)
+        # nose shifted up towards eyes (0.33): pitch_ratio = (0.33 - 0.3) / 0.25 = 0.12 < PITCH_MIN (0.20)
         keypoints = [
             (0.4, 0.3),
             (0.6, 0.3),
-            (0.5, 0.36),
+            (0.5, 0.33),
             (0.5, 0.55),
         ]
         _, pitch_ratio, _, _, looking = compute_head_pose(keypoints)
         self.assertLess(pitch_ratio, PITCH_MIN)
         self.assertFalse(looking)
+
+    def test_top_of_tv_camera_perspective_is_looking(self):
+        # nose shifted down due to camera above TV looking down at user (pitch_ratio 0.83)
+        keypoints = [
+            (0.4, 0.3),
+            (0.6, 0.3),
+            (0.51, 0.5075),
+            (0.5, 0.55),
+        ]
+        yaw_ratio, pitch_ratio, _, _, looking = compute_head_pose(keypoints)
+        self.assertAlmostEqual(yaw_ratio, 0.05, places=2)
+        self.assertAlmostEqual(pitch_ratio, 0.83, places=2)
+        self.assertTrue(looking)
 
 
 class CropTests(unittest.TestCase):

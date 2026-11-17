@@ -66,12 +66,29 @@ class IoUTracker:
                 if candidate_iou > best_iou:
                     best_iou = candidate_iou
                     best_index = index
+
+            # Fallback to center distance if IoU drops below threshold during motion
+            if best_index is None and unmatched:
+                tx, ty, tw, th = track.box
+                tcx, tcy = tx + tw / 2.0, ty + th / 2.0
+                best_dist = 0.25  # max 25% of screen
+                for index in unmatched:
+                    bx, by, bw, bh = parsed[index][0]
+                    bcx, bcy = bx + bw / 2.0, by + bh / 2.0
+                    dist = ((tcx - bcx) ** 2 + (tcy - bcy) ** 2) ** 0.5
+                    max_dim = max(tw, th, bw, bh) * 1.5
+                    if dist <= max_dim and dist < best_dist:
+                        best_dist = dist
+                        best_index = index
+
             if best_index is None:
                 if timestamp_ms - track.last_seen_ms <= self.max_age_ms:
                     updated.append(track)
                 continue
             unmatched.remove(best_index)
             box, score, yaw, pitch, yaw_ratio, pitch_ratio, looking = parsed[best_index]
+            smoothed_yaw_ratio = 0.6 * yaw_ratio + 0.4 * track.yaw_ratio if track.yaw_ratio != 0.0 else yaw_ratio
+            smoothed_pitch_ratio = 0.6 * pitch_ratio + 0.4 * track.pitch_ratio if track.pitch_ratio != 0.55 else pitch_ratio
             updated.append(replace(
                 track,
                 box=box,
@@ -79,8 +96,8 @@ class IoUTracker:
                 last_seen_ms=timestamp_ms,
                 yaw=yaw,
                 pitch=pitch,
-                yaw_ratio=yaw_ratio,
-                pitch_ratio=pitch_ratio,
+                yaw_ratio=smoothed_yaw_ratio,
+                pitch_ratio=smoothed_pitch_ratio,
                 raw_looking=looking,
             ))
 

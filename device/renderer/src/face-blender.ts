@@ -169,13 +169,14 @@ export class FaceBlender {
       const radius = renderSize / 2;
       const grad = oCtx.createRadialGradient(radius, radius, 0, radius, radius, radius);
 
-      // Alpha 1.0 out to ~55%, falling smoothly to 0 at 100% (smoothstep curve)
+      // Alpha 1.0 at center, falling smoothly to 0 at 100% with wide feathered smoothstep curve
       grad.addColorStop(0.0, "rgba(0,0,0,1)");
-      grad.addColorStop(0.55, "rgba(0,0,0,1)");
-      grad.addColorStop(0.65, "rgba(0,0,0,0.93)");
-      grad.addColorStop(0.75, "rgba(0,0,0,0.78)");
-      grad.addColorStop(0.85, "rgba(0,0,0,0.50)");
-      grad.addColorStop(0.93, "rgba(0,0,0,0.22)");
+      grad.addColorStop(0.20, "rgba(0,0,0,0.98)");
+      grad.addColorStop(0.35, "rgba(0,0,0,0.88)");
+      grad.addColorStop(0.50, "rgba(0,0,0,0.70)");
+      grad.addColorStop(0.65, "rgba(0,0,0,0.48)");
+      grad.addColorStop(0.80, "rgba(0,0,0,0.24)");
+      grad.addColorStop(0.92, "rgba(0,0,0,0.07)");
       grad.addColorStop(1.0, "rgba(0,0,0,0)");
 
       oCtx.fillStyle = grad;

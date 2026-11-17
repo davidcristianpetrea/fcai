@@ -233,7 +233,8 @@ function DisplaysPanel({ locale }: { locale: Locale }) {
   }, []);
   const pair = async (event: FormEvent) => {
     event.preventDefault();
-    const response = await fetch("/api/devices/pair", { method: "POST", headers: { ...authHeaders(), "content-type": "application/json" }, body: JSON.stringify({ code, name }) });
+    const effectiveName = name.trim() || `Ecran ${devices.length + 1}`;
+    const response = await fetch("/api/devices/pair", { method: "POST", headers: { ...authHeaders(), "content-type": "application/json" }, body: JSON.stringify({ code, name: effectiveName }) });
     if (!response.ok) { setNotice(locale === "ro" ? "Codul nu este valid sau a expirat." : "That code is invalid or expired."); return; }
     setNotice(locale === "ro" ? "Ecranul a fost adăugat." : "Display added.");
     setCode(""); setName(""); refresh();

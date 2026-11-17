@@ -23,6 +23,24 @@ export function determineSides(faces: { x: number }[]): SideLockingResult {
   return { peopleSide, contentSide };
 }
 
+export function clampFaceToScreen(
+  cx: number,
+  cy: number,
+  radius: number,
+  screenWidth: number,
+  screenHeight: number,
+  marginPercent = 0.03,
+): { cx: number; cy: number } {
+  const margin = Math.round(screenWidth * marginPercent);
+  const minY = radius + margin;
+  const maxY = screenHeight - radius - margin;
+  const minX = radius + margin;
+  const maxX = screenWidth - radius - margin;
+  const clampedX = Math.max(minX, Math.min(maxX, cx));
+  const clampedY = Math.max(minY, Math.min(maxY, cy));
+  return { cx: clampedX, cy: clampedY };
+}
+
 export function clampFaceToPeopleSide(
   cx: number,
   cy: number,
@@ -63,6 +81,7 @@ export function separateFaces(
   peopleSide: PeopleSide,
   screenWidth: number,
   screenHeight: number,
+  isOfferActive = false,
   iterations = 4,
 ): { id: number; cx: number; cy: number; radius: number }[] {
   const result = faces.map((f) => ({ ...f }));
@@ -88,16 +107,24 @@ export function separateFaces(
       }
     }
 
-    // Re-clamp all to people side boundary
+    // Re-clamp all to boundary
     for (const f of result) {
-      const clamped = clampFaceToPeopleSide(
-        f.cx,
-        f.cy,
-        f.radius,
-        peopleSide,
-        screenWidth,
-        screenHeight,
-      );
+      const clamped = isOfferActive
+        ? clampFaceToPeopleSide(
+            f.cx,
+            f.cy,
+            f.radius,
+            peopleSide,
+            screenWidth,
+            screenHeight,
+          )
+        : clampFaceToScreen(
+            f.cx,
+            f.cy,
+            f.radius,
+            screenWidth,
+            screenHeight,
+          );
       f.cx = clamped.cx;
       f.cy = clamped.cy;
     }

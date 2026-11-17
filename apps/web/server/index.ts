@@ -124,7 +124,8 @@ app.post("/api/devices/pair", async (c) => {
   const body = await c.req.json<{ code?: string; name?: string }>();
   const row = body.code ? db.prepare("SELECT device_id FROM pair_requests WHERE code = ? AND bound_at IS NULL AND expires_at > ?").get(body.code, Date.now()) as { device_id: string } | undefined : undefined;
   if (!row) return c.json({ error: "invalid_pair_code" }, 400);
-  const name = body.name?.trim() || "Ecran nou";
+  const deviceCount = (db.prepare("SELECT COUNT(*) as count FROM devices").get() as { count: number }).count;
+  const name = body.name?.trim() || `Ecran ${deviceCount + 1}`;
   const now = new Date().toISOString();
   db.prepare("UPDATE devices SET name = ?, device_secret_hash = ?, config_json = COALESCE(NULLIF(config_json, '{}'), ?), updated_at = ? WHERE id = ?").run(name, "paired-device", JSON.stringify(defaultDeviceConfig), now, row.device_id);
   db.prepare("UPDATE pair_requests SET bound_at = ? WHERE device_id = ?").run(now, row.device_id);

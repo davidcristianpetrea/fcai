@@ -212,8 +212,8 @@ export class App {
       this.activeConfig = { ...config };
     }
 
-    // Update state machine configuration
-    this.stateMachine = new AttentionStateMachine({
+    // Update state machine configuration without destroying current tracking state
+    this.stateMachine.updateConfig({
       dwellSeconds: config.lookTime || 3.0,
       offerMinSeconds: 20.0,
       exitAfterNobodySeconds: 6.0,
@@ -295,7 +295,7 @@ export class App {
       }
 
       this.renderMedia(nowMs);
-      this.renderFaceBlending(faces, nowMs);
+      this.renderFaceBlending(faces, nowMs, phase);
       this.renderTemplate(phase, nowMs);
     }
 
@@ -353,9 +353,17 @@ export class App {
     }
 
     const elapsed = nowMs - this.currentItemStartedMs;
+    const activeSlot = this.standbyContainer.querySelector<HTMLElement>(".media-slot.active");
+    const activeVideo = activeSlot?.querySelector("video");
+    const videoEnded = Boolean(
+      activeVideo &&
+        (activeVideo.ended ||
+          (activeVideo.duration > 0 && activeVideo.currentTime >= activeVideo.duration - 0.2))
+    );
+    const durationPassed = elapsed >= itemDuration;
 
-    // Check if item duration expired -> advance playlist
-    if (elapsed >= itemDuration && !this.isTransitioning && this.mediaList.length > 1) {
+    // Check if item duration expired or video ended -> advance playlist and animate transition
+    if ((durationPassed || videoEnded) && !this.isTransitioning && this.mediaList.length >= 1) {
       this.isTransitioning = true;
       this.transitionStartMs = nowMs;
       this.activeTransitionType = this.transitionSelector.resolve(config.transition);
@@ -380,8 +388,13 @@ export class App {
       if (incoming) {
         incoming.style.opacity = String(styles.incoming.opacity);
         incoming.style.transform = styles.incoming.transform;
+        if (styles.incoming.filter) incoming.style.filter = styles.incoming.filter;
         if (styles.incoming.maskImage) {
           incoming.style.webkitMaskImage = styles.incoming.maskImage;
+          (incoming.style as any).maskImage = styles.incoming.maskImage;
+        } else {
+          incoming.style.webkitMaskImage = "none";
+          (incoming.style as any).maskImage = "none";
         }
       }
 
@@ -393,13 +406,13 @@ export class App {
       }
     } else {
       // Ken Burns effect on photos during active display
-      const activeSlot = this.standbyContainer.querySelector<HTMLElement>(".media-slot.active");
-      if (activeSlot && activeSlot.dataset.type === "image") {
+      const currentActiveSlot = this.standbyContainer.querySelector<HTMLElement>(".media-slot.active");
+      if (currentActiveSlot && currentActiveSlot.dataset.type === "image") {
         const p = Math.min(1.0, elapsed / itemDuration);
         const scale = 1.0 + 0.08 * p;
         const panX = -1.5 + 3.0 * p;
         const panY = -0.75 + 1.5 * p;
-        activeSlot.style.transform = `translate3d(${panX.toFixed(2)}%, ${panY.toFixed(2)}%, 0) scale(${scale.toFixed(4)})`;
+        currentActiveSlot.style.transform = `translate3d(${panX.toFixed(2)}%, ${panY.toFixed(2)}%, 0) scale(${scale.toFixed(4)})`;
       }
     }
   }
@@ -412,7 +425,7 @@ export class App {
       <div class="media-slot active" data-type="${isVideo ? "video" : "image"}" style="opacity: 1; transform: none;">
         ${
           isVideo
-            ? `<video src="${item.local}" autoplay muted loop playsinline></video>`
+            ? `<video src="${item.local}" autoplay muted playsinline></video>`
             : `<img src="${item.local}" alt="">`
         }
       </div>
@@ -420,6 +433,8 @@ export class App {
   }
 
   private prepareNextMediaSlot(): void {
+    this.standbyContainer.querySelectorAll(".media-slot.incoming").forEach((el) => el.remove());
+
     const nextIdx = (this.currentMediaIndex + 1) % this.mediaList.length;
     const nextItem = this.mediaList[nextIdx];
     if (!nextItem) return;
@@ -434,23 +449,37 @@ export class App {
     nextSlot.className = "media-slot incoming";
     nextSlot.dataset.type = isVideo ? "video" : "image";
     nextSlot.style.opacity = "0";
-    nextSlot.innerHTML = isVideo
-      ? `<video src="${nextItem.local}" autoplay muted loop playsinline></video>`
-      : `<img src="${nextItem.local}" alt="">`;
+
+    if (isVideo) {
+      const v = document.createElement("video");
+      v.src = nextItem.local;
+      v.autoplay = true;
+      v.muted = true;
+      v.playsInline = true;
+      v.currentTime = 0;
+      v.play().catch(() => {});
+      nextSlot.appendChild(v);
+    } else {
+      const img = document.createElement("img");
+      img.src = nextItem.local;
+      img.alt = "";
+      nextSlot.appendChild(img);
+    }
 
     this.standbyContainer.appendChild(nextSlot);
   }
 
   private finalizeMediaTransition(): void {
-    const outgoing = this.standbyContainer.querySelector<HTMLElement>(".media-slot.outgoing");
+    const outgoings = this.standbyContainer.querySelectorAll<HTMLElement>(".media-slot.outgoing");
+    outgoings.forEach((el) => el.remove());
     const incoming = this.standbyContainer.querySelector<HTMLElement>(".media-slot.incoming");
-    if (outgoing) outgoing.remove();
     if (incoming) {
       incoming.className = "media-slot active";
       incoming.style.opacity = "1";
       incoming.style.transform = "none";
       incoming.style.filter = "none";
       incoming.style.webkitMaskImage = "none";
+      (incoming.style as any).maskImage = "none";
     }
     // Apply new configuration at next item boundary
     this.activeConfig = { ...this.pendingConfig };
@@ -458,7 +487,7 @@ export class App {
     this.preloadNextMedia();
   }
 
-  private renderFaceBlending(faces: InputFace[], nowMs: number): void {
+  private renderFaceBlending(faces: InputFace[], nowMs: number, phase: string): void {
     if (!this.faceCtx) return;
     const w = this.faceCanvas.width;
     const h = this.faceCanvas.height;
@@ -472,7 +501,11 @@ export class App {
     const tracks = this.blender.getActiveTracks();
     if (tracks.length === 0) return;
 
-    // Separate overlapping faces and clamp inside people half
+    // Only lock to people side when offer/iris is active, allowing full-screen tracking in standby
+    const isOfferActive =
+      (phase === "TRIGGERING" || phase === "OFFER" || phase === "EXITING") &&
+      (config.template || "recruit") === "recruit";
+
     const items = tracks.map((t) => ({
       id: t.id,
       cx: t.currentX,
@@ -480,7 +513,7 @@ export class App {
       radius: t.currentSize / 2,
     }));
 
-    const separated = separateFaces(items, this.lockedPeopleSide, w, h);
+    const separated = separateFaces(items, this.lockedPeopleSide, w, h, isOfferActive);
     for (let i = 0; i < tracks.length; i++) {
       tracks[i].currentX = separated[i].cx;
       tracks[i].currentY = separated[i].cy;

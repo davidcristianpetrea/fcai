@@ -65,6 +65,17 @@ export class AttentionStateMachine {
     return this.state;
   }
 
+  public updateConfig(config: AttentionStateMachineConfig): void {
+    if (config.dwellSeconds !== undefined) this.config.dwellSeconds = config.dwellSeconds;
+    if (config.offerMinSeconds !== undefined) this.config.offerMinSeconds = config.offerMinSeconds;
+    if (config.exitAfterNobodySeconds !== undefined) this.config.exitAfterNobodySeconds = config.exitAfterNobodySeconds;
+    if (config.cooldownSeconds !== undefined) this.config.cooldownSeconds = config.cooldownSeconds;
+    if (config.lookingResetSeconds !== undefined) this.config.lookingResetSeconds = config.lookingResetSeconds;
+    if (config.triggeringDurationMs !== undefined) this.config.triggeringDurationMs = config.triggeringDurationMs;
+    if (config.exitingDurationMs !== undefined) this.config.exitingDurationMs = config.exitingDurationMs;
+    if (config.absentToRetriggerSeconds !== undefined) this.config.absentToRetriggerSeconds = config.absentToRetriggerSeconds;
+  }
+
   public forceTrigger(nowMs: number, faceId: number = 1): void {
     this.state = "TRIGGERING";
     this.stateStartedMs = nowMs;
@@ -117,8 +128,11 @@ export class AttentionStateMachine {
     for (const [id, track] of this.tracks.entries()) {
       if (!presentIds.has(id)) {
         track.isLooking = false;
-        track.lookingSinceMs = undefined;
-        track.notLookingSinceMs = undefined;
+        if (track.notLookingSinceMs === undefined) {
+          track.notLookingSinceMs = nowMs;
+        } else if (nowMs - track.notLookingSinceMs > this.config.lookingResetSeconds * 1000) {
+          track.lookingSinceMs = undefined;
+        }
         if (nowMs - track.lastSeenMs > this.config.absentToRetriggerSeconds * 1000) {
           this.triggeredTrackIds.delete(id);
         }
