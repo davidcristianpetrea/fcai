@@ -7,7 +7,8 @@ let offerUntil = 0;
 
 function setup(pairing) {
   const code = String(pairing?.code || "------");
-  root.innerHTML = `<section class="setup"><h1>Mergi pe adsense.davidpetrea.ro → Adaugă ecran și introdu codul:</h1><p class="code">${code.slice(0, 3)} ${code.slice(3)}</p></section>`;
+  const english = new URLSearchParams(location.search).get("lang") === "en";
+  root.innerHTML = `<section class="setup"><h1>${english ? "Go to adsense.davidpetrea.ro → Add display and enter this code:" : "Mergi pe adsense.davidpetrea.ro → Adaugă ecran și introdu codul:"}</h1><p class="code">${code.slice(0, 3)} ${code.slice(3)}</p></section>`;
 }
 
 function standby() {

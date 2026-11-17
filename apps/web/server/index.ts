@@ -69,7 +69,7 @@ app.post("/api/device/pair-request", (c) => {
 app.get("/api/device/pair-status", (c) => {
   const deviceId = c.req.query("deviceId") ?? "";
   const code = c.req.query("code") ?? "";
-  const row = db.prepare("SELECT p.code, p.expires_at, p.bound_at, d.name, d.config_json FROM pair_requests p JOIN devices d ON d.id = p.device_id WHERE p.device_id = ? AND p.code = ?").get(deviceId, code) as { code: string; expires_at: number; bound_at?: string; name: string; config_json: string } | undefined;
+  const row = db.prepare("SELECT p.code, p.expires_at, p.bound_at, d.name, d.config_json FROM pair_requests p JOIN devices d ON d.id = p.device_id WHERE p.device_id = ?").get(deviceId) as { code: string; expires_at: number; bound_at?: string; name: string; config_json: string } | undefined;
   if (!row) return c.json({ error: "not_found" }, 404);
   if (!row.bound_at && row.expires_at <= Date.now()) {
     const nextCode = String(Math.floor(100000 + Math.random() * 900000));
