@@ -160,6 +160,20 @@ function authHeaders(): HeadersInit {
   return token ? { authorization: `Bearer ${token}` } : {};
 }
 
+async function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const token = window.localStorage.getItem("adsense-session");
+  const headers = new Headers(init?.headers);
+  if (token && !headers.has("authorization")) {
+    headers.set("authorization", `Bearer ${token}`);
+  }
+  const res = await fetch(input, { ...init, headers });
+  if (res.status === 401) {
+    window.localStorage.removeItem("adsense-session");
+    window.dispatchEvent(new CustomEvent("adsense:unauthorized"));
+  }
+  return res;
+}
+
 async function digestFile(file: File): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -169,19 +183,19 @@ function MediaUploader({ locale }: { locale: Locale }) {
   const t = (key: TranslationKey) => translate(locale, key);
   const [items, setItems] = useState<{ name: string; progress: number; done: boolean; error?: string }[]>([]);
   const [assets, setAssets] = useState<{ id: string; filename: string; size_bytes: number }[]>([]);
-  const refresh = () => { void fetch("/api/assets", { headers: authHeaders() }).then((response) => response.ok ? response.json() as Promise<{ assets: typeof assets }> : { assets: [] }).then((payload) => setAssets(payload.assets)); };
+  const refresh = () => { void authFetch("/api/assets").then((response) => response.ok ? response.json() as Promise<{ assets: typeof assets }> : { assets: [] }).then((payload) => setAssets(payload.assets)); };
   useEffect(refresh, []);
   const upload = async (file: File, itemIndex: number) => {
     try {
       if (file.size > 2 * 1024 * 1024 * 1024) throw new Error("upload_too_large");
-      const created = await fetch("/api/assets", { method: "POST", headers: { ...authHeaders(), "content-type": "application/json" }, body: JSON.stringify({ filename: file.name, contentType: file.type || "application/octet-stream" }) });
+      const created = await authFetch("/api/assets", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ filename: file.name, contentType: file.type || "application/octet-stream" }) });
       if (!created.ok) throw new Error("upload_failed");
       const asset = await created.json() as { assetId: string; uploadUrl: string; chunkBytes: number };
       const uploadUrl = new URL(asset.uploadUrl, window.location.origin);
       const token = uploadUrl.searchParams.get("token") ?? "";
       const chunkBytes = asset.chunkBytes;
       const totalChunks = Math.ceil(file.size / chunkBytes);
-      const status = await fetch(`/api/assets/${asset.assetId}/upload-status?token=${encodeURIComponent(token)}`, { headers: authHeaders() });
+      const status = await authFetch(`/api/assets/${asset.assetId}/upload-status?token=${encodeURIComponent(token)}`);
       const statusPayload = status.ok ? await status.json() as { nextIndex: number } : { nextIndex: 0 };
       let nextIndex = statusPayload.nextIndex;
       while (nextIndex < totalChunks) {
@@ -189,10 +203,10 @@ function MediaUploader({ locale }: { locale: Locale }) {
         const chunk = file.slice(index * chunkBytes, Math.min(file.size, (index + 1) * chunkBytes));
         let sent = false;
         for (let attempt = 0; attempt < 3 && !sent; attempt++) {
-          const response = await fetch(`/api/assets/${asset.assetId}/chunks/${index}?token=${encodeURIComponent(token)}`, { method: "PUT", headers: authHeaders(), body: chunk });
+          const response = await authFetch(`/api/assets/${asset.assetId}/chunks/${index}?token=${encodeURIComponent(token)}`, { method: "PUT", body: chunk });
           sent = response.ok;
           if (!sent && response.status === 409) {
-            const latest = await fetch(`/api/assets/${asset.assetId}/upload-status?token=${encodeURIComponent(token)}`, { headers: authHeaders() });
+            const latest = await authFetch(`/api/assets/${asset.assetId}/upload-status?token=${encodeURIComponent(token)}`);
             nextIndex = (await latest.json() as { nextIndex: number }).nextIndex;
             break;
           }
@@ -202,7 +216,7 @@ function MediaUploader({ locale }: { locale: Locale }) {
         setItems((current) => current.map((item, indexToUpdate) => indexToUpdate === itemIndex ? { ...item, progress: Math.round(nextIndex / totalChunks * 100) } : item));
       }
       const sha256 = await digestFile(file);
-      const complete = await fetch(`/api/assets/${asset.assetId}/complete?token=${encodeURIComponent(token)}`, { method: "POST", headers: { ...authHeaders(), "content-type": "application/json" }, body: JSON.stringify({ totalSize: file.size, sha256 }) });
+      const complete = await authFetch(`/api/assets/${asset.assetId}/complete?token=${encodeURIComponent(token)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ totalSize: file.size, sha256 }) });
       if (!complete.ok) throw new Error((await complete.json().catch(() => ({})) as { error?: string }).error ?? "upload_failed");
       setItems((current) => current.map((item, indexToUpdate) => indexToUpdate === itemIndex ? { ...item, progress: 100, done: true } : item));
       refresh();
@@ -215,7 +229,7 @@ function MediaUploader({ locale }: { locale: Locale }) {
     setItems(files.map((file) => ({ name: file.name, progress: 0, done: false })));
     files.forEach((file, index) => void upload(file, index));
   };
-  return <div className="panel media-uploader"><label className="button primary file-picker">{t("chooseFiles")}<input type="file" multiple accept="image/jpeg,image/png,image/webp,image/heic,video/mp4,video/quicktime,video/webm,video/x-matroska,image/gif" onChange={chooseFiles} /></label>{items.map((item) => <div className="upload-row" key={item.name}><div className="upload-heading"><span>{item.name}</span><strong>{item.error ?? (item.done ? t("uploadDone") : `${item.progress}%`)}</strong></div><progress max="100" value={item.progress} /></div>)}<div className="asset-list">{assets.map((asset) => <div className="upload-heading" key={asset.id}><span>{asset.filename}</span><button className="text-button" onClick={() => { void fetch(`/api/assets/${asset.id}`, { method: "DELETE", headers: authHeaders() }).then(refresh); }}>{t("delete")}</button></div>)}</div></div>;
+  return <div className="panel media-uploader"><label className="button primary file-picker">{t("chooseFiles")}<input type="file" multiple accept="image/jpeg,image/png,image/webp,image/heic,video/mp4,video/quicktime,video/webm,video/x-matroska,image/gif" onChange={chooseFiles} /></label>{items.map((item) => <div className="upload-row" key={item.name}><div className="upload-heading"><span>{item.name}</span><strong>{item.error ?? (item.done ? t("uploadDone") : `${item.progress}%`)}</strong></div><progress max="100" value={item.progress} /></div>)}<div className="asset-list">{assets.map((asset) => <div className="upload-heading" key={asset.id}><span>{asset.filename}</span><button className="text-button" onClick={() => { void authFetch(`/api/assets/${asset.id}`, { method: "DELETE" }).then(refresh); }}>{t("delete")}</button></div>)}</div></div>;
 }
 
 // DisplaysPanel removed in favor of unified DisplaysView
@@ -225,7 +239,7 @@ function LeadsPanel({ locale }: { locale: Locale }) {
   const [leads, setLeads] = useState<{ id: string; name: string; email: string; created_at: string; device_id?: string; device_name?: string }[]>([]);
   const [query, setQuery] = useState("");
   const refresh = () => {
-    void fetch("/api/leads", { headers: authHeaders() })
+    void authFetch("/api/leads")
       .then((response) => response.json() as Promise<{ leads: typeof leads }>)
       .then((payload) => setLeads(payload.leads || []));
   };
@@ -250,7 +264,7 @@ function LeadsPanel({ locale }: { locale: Locale }) {
 
   const deleteLead = async (id: string) => {
     if (!window.confirm(locale === "ro" ? "Sigur vrei să ștergi acest contact? Acțiunea nu poate fi anulată." : "Are you sure you want to delete this lead? This action cannot be undone.")) return;
-    const response = await fetch(`/api/leads/${id}`, { method: "DELETE", headers: authHeaders() });
+    const response = await authFetch(`/api/leads/${id}`, { method: "DELETE" });
     if (response.ok) {
       refresh();
     }
@@ -326,6 +340,7 @@ function DisplaysView({ locale }: { locale: Locale }) {
   const defaultConfig: Record<string, unknown> = {
     template: "simple",
     greetingText: "Hei!",
+    offerAnimationPace: 1.0,
     liveFaces: true,
     lookTime: 3,
     standbyDuration: 8,
@@ -364,7 +379,7 @@ function DisplaysView({ locale }: { locale: Locale }) {
   };
 
   const refresh = () => {
-    void fetch("/api/devices", { headers: authHeaders() })
+    void authFetch("/api/devices")
       .then((response) => response.json() as Promise<{ devices: typeof devices }>)
       .then((payload) => {
         const list = payload.devices || [];
@@ -389,7 +404,7 @@ function DisplaysView({ locale }: { locale: Locale }) {
     refresh();
     const handleChanged = () => refresh();
     window.addEventListener("adsense:devices-changed", handleChanged);
-    void fetch("/api/assets", { headers: authHeaders() })
+    void authFetch("/api/assets")
       .then((response) => response.json() as Promise<{ assets: typeof assets }>)
       .then((payload) => setAssets(payload.assets || []));
     return () => window.removeEventListener("adsense:devices-changed", handleChanged);
@@ -410,9 +425,9 @@ function DisplaysView({ locale }: { locale: Locale }) {
     setPairNotice("");
     const effectiveName = pairName.trim() || `Ecran ${devices.length + 1}`;
     try {
-      const response = await fetch("/api/devices/pair", {
+      const response = await authFetch("/api/devices/pair", {
         method: "POST",
-        headers: { ...authHeaders(), "content-type": "application/json" },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ code, name: effectiveName }),
       });
       if (!response.ok) {
@@ -438,7 +453,7 @@ function DisplaysView({ locale }: { locale: Locale }) {
   const deleteDevice = async (id: string) => {
     if (!id) return;
     if (!window.confirm(locale === "ro" ? "Sigur vrei să elimini acest ecran? Acțiunea nu poate fi anulată." : "Are you sure you want to delete this display?")) return;
-    const response = await fetch(`/api/devices/${id}`, { method: "DELETE", headers: authHeaders() });
+    const response = await authFetch(`/api/devices/${id}`, { method: "DELETE" });
     if (response.ok) {
       showToast(locale === "ro" ? "Ecranul a fost eliminat." : "Display removed.", "info", 3000);
       refresh();
@@ -459,9 +474,9 @@ function DisplaysView({ locale }: { locale: Locale }) {
     showToast(locale === "ro" ? "Se salvează…" : "Saving…", "info");
 
     try {
-      const response = await fetch(`/api/devices/${selectedDeviceId}/config`, {
+      const response = await authFetch(`/api/devices/${selectedDeviceId}/config`, {
         method: "POST",
-        headers: { ...authHeaders(), "content-type": "application/json" },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify(config),
       });
 
@@ -479,7 +494,7 @@ function DisplaysView({ locale }: { locale: Locale }) {
       const startAt = Date.now();
       pollTimerRef.current = setInterval(async () => {
         try {
-          const cfgRes = await fetch(`/api/devices/${selectedDeviceId}/config`, { headers: authHeaders() });
+          const cfgRes = await authFetch(`/api/devices/${selectedDeviceId}/config`);
           if (!cfgRes.ok) return;
           const cfgData = (await cfgRes.json()) as { appliedConfigVersion?: number; configVersion?: number };
           if (typeof cfgData.appliedConfigVersion === "number" && cfgData.appliedConfigVersion >= version) {
@@ -785,6 +800,31 @@ function DisplaysView({ locale }: { locale: Locale }) {
                     onChange={(event) => update("lookTime", Number(event.target.value))}
                   />
                 </label>
+                <label style={{ gridColumn: "1 / -1" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                    <span>{locale === "ro" ? "Ritm animație ofertă:" : "Offer animation pace:"}</span>
+                    <strong style={{ color: "#146b55" }}>
+                      {Number(config.offerAnimationPace || 1.0) <= 0.8
+                        ? (locale === "ro" ? "Dinamism rapid (2.4s)" : "Fast (2.4s)")
+                        : Number(config.offerAnimationPace || 1.0) >= 1.3
+                          ? (locale === "ro" ? "Relaxat & Fluid (4.4s)" : "Relaxed & Fluid (4.4s)")
+                          : (locale === "ro" ? "Normal & Elegant (3.4s)" : "Normal & Elegant (3.4s)")}
+                    </strong>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.7"
+                    max="1.5"
+                    step="0.1"
+                    value={Number(config.offerAnimationPace || 1.0)}
+                    onChange={(event) => update("offerAnimationPace", Number(event.target.value))}
+                  />
+                  <small className="muted" style={{ fontSize: "12px", marginTop: "4px" }}>
+                    {locale === "ro"
+                      ? "Controlează viteza întregii tranziții: apariția mesajului Hei!, tranziția lină și intrarea ofertei cu codul QR."
+                      : "Controls the pacing of the sequence: greeting entrance, smooth transition, and offer reveal."}
+                  </small>
+                </label>
                 <label className="checkbox" style={{ gridColumn: "1 / -1" }}>
                   <input
                     type="checkbox"
@@ -1057,10 +1097,10 @@ function DashboardOverview({ locale, t, health }: { locale: Locale; t: (key: Tra
   const [leads, setLeads] = useState<{ id: string; name: string; email: string; created_at: string; device_name?: string }[]>([]);
 
   useEffect(() => {
-    void fetch("/api/devices", { headers: authHeaders() })
+    void authFetch("/api/devices")
       .then((res) => res.json() as Promise<{ devices: typeof devices }>)
       .then((p) => setDevices(p.devices || []));
-    void fetch("/api/leads", { headers: authHeaders() })
+    void authFetch("/api/leads")
       .then((res) => res.json() as Promise<{ leads: typeof leads }>)
       .then((p) => setLeads(p.leads || []));
   }, []);
@@ -1164,10 +1204,10 @@ function StatsPanel({ locale }: { locale: Locale }) {
   const [leads, setLeads] = useState<{ id: string; name: string; email: string; created_at: string; device_id?: string; device_name?: string }[]>([]);
 
   useEffect(() => {
-    void fetch("/api/devices", { headers: authHeaders() })
+    void authFetch("/api/devices")
       .then((res) => res.json() as Promise<{ devices: typeof devices }>)
       .then((p) => setDevices(p.devices || []));
-    void fetch("/api/leads", { headers: authHeaders() })
+    void authFetch("/api/leads")
       .then((res) => res.json() as Promise<{ leads: typeof leads }>)
       .then((p) => setLeads(p.leads || []));
   }, []);
@@ -1334,6 +1374,17 @@ function Dashboard({ locale, setLocale, route, t }: { locale: Locale; setLocale:
   const [loggedIn, setLoggedIn] = useState(() => Boolean(window.localStorage.getItem("adsense-session")));
   const [health, setHealth] = useState<ApiState>("loading");
   useEffect(() => { void getApiState(() => fetch(API_PATHS.health)).then(setHealth); }, []);
+
+  useEffect(() => {
+    const handleUnauthorized = () => setLoggedIn(false);
+    window.addEventListener("adsense:unauthorized", handleUnauthorized);
+    if (loggedIn) {
+      authFetch("/api/session/me").then((res) => {
+        if (!res.ok) setLoggedIn(false);
+      }).catch(() => {});
+    }
+    return () => window.removeEventListener("adsense:unauthorized", handleUnauthorized);
+  }, [loggedIn]);
   const nav = useMemo(() => Object.entries(routeKeys) as [Exclude<Route, "offer" | "privacy">, TranslationKey][], []);
   if (!loggedIn) return <LoginShell locale={locale} />;
   return (

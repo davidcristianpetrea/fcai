@@ -29,6 +29,7 @@ const defaultDeviceConfig = {
   template: "simple",
   liveFaces: true,
   greetingText: "Hei!",
+  offerAnimationPace: 1.0,
   lookTime: 3,
   standbyDuration: 8,
   standbyEnabled: true,

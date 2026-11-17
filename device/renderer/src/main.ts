@@ -212,6 +212,10 @@ export class App {
       this.activeConfig = { ...config };
     }
 
+    const pace = Math.max(0.6, Math.min(2.0, Number(config.offerAnimationPace || 1.0)));
+    const triggerDuration = Math.round(3400 * pace);
+    const exitDuration = Math.round(900 * pace);
+
     // Update state machine configuration without destroying current tracking state
     this.stateMachine.updateConfig({
       dwellSeconds: config.lookTime || 2.5,
@@ -219,8 +223,8 @@ export class App {
       exitAfterNobodySeconds: 4.0,
       maxOfferSeconds: 22.0,
       cooldownSeconds: 6.0,
-      triggeringDurationMs: 1800,
-      exitingDurationMs: 800,
+      triggeringDurationMs: triggerDuration,
+      exitingDurationMs: exitDuration,
     });
 
     // Update media playlist
@@ -545,9 +549,9 @@ export class App {
 
     this.offerContainer.style.display = "flex";
 
+    const pace = Math.max(0.6, Math.min(2.0, Number(config.offerAnimationPace || 1.0)));
     const stateElapsed = nowMs - this.stateMachine.stateStartedMs;
-    const triggerDuration = 1800; // ms for greeting then offer animation
-    const exitDuration = 800;
+    const exitDuration = Math.round(900 * pace);
 
     let slideAnim = 1.0;
     let greetingVisible = false;
@@ -559,30 +563,49 @@ export class App {
     let contentY = 0;
 
     if (phase === "TRIGGERING") {
-      const slideP = Math.min(1.0, stateElapsed / 600);
+      // 1. Smooth, gentle entrance of the slide container (0 to 1100 * pace ms)
+      const slideDuration = 1100 * pace;
+      const slideP = Math.min(1.0, stateElapsed / slideDuration);
       slideAnim = easeInOutCubic(slideP);
 
-      if (stateElapsed < 1150) {
+      // 2. Greeting message ("Hei!") with comfortable, generous presence
+      const greetingExitStart = 1800 * pace;
+      const greetingExitEnd = 2400 * pace;
+
+      if (stateElapsed < greetingExitEnd) {
         greetingVisible = true;
-        const bounceT = Math.min(1.0, stateElapsed / 600);
-        // Premium elastic bounce curve: shoots to 1.14 then smoothly settles
-        const overshoot = Math.sin(bounceT * Math.PI * 1.5) * 0.16 * (1 - bounceT);
-        greetingScale = 0.6 + 0.4 * (bounceT + overshoot);
-        if (stateElapsed > 800) {
-          greetingOpacity = Math.max(0, 1.0 - (stateElapsed - 800) / 300);
-          greetingY = -(1.0 - greetingOpacity) * 25;
+        const entranceDuration = 700 * pace;
+        if (stateElapsed < entranceDuration) {
+          const t = stateElapsed / entranceDuration;
+          const eased = easeInOutCubic(t);
+          greetingOpacity = eased;
+          // Smooth organic scale up with soft settle
+          const overshoot = Math.sin(t * Math.PI) * 0.08;
+          greetingScale = 0.85 + 0.15 * eased + overshoot;
+          greetingY = (1.0 - eased) * 15;
+        } else if (stateElapsed >= greetingExitStart) {
+          const exitT = (stateElapsed - greetingExitStart) / (greetingExitEnd - greetingExitStart);
+          const exitEased = easeInOutCubic(exitT);
+          greetingOpacity = Math.max(0, 1.0 - exitEased);
+          greetingScale = 1.0 - 0.05 * exitEased;
+          greetingY = -exitEased * 24;
         } else {
-          greetingOpacity = Math.min(1.0, stateElapsed / 200);
+          // Stable, proud, friendly presentation in the middle
+          greetingOpacity = 1.0;
+          greetingScale = 1.0;
           greetingY = 0;
         }
       }
 
-      if (stateElapsed >= 950) {
-        const contentT = Math.min(1.0, (stateElapsed - 950) / 700);
+      // 3. Content (headline, subtext, QR card) emerges smoothly
+      const contentStart = 2100 * pace;
+      const contentDuration = 1200 * pace;
+      if (stateElapsed >= contentStart) {
+        const contentT = Math.min(1.0, (stateElapsed - contentStart) / contentDuration);
         const contentEased = easeInOutCubic(contentT);
         contentOpacity = contentEased;
-        contentScale = 0.90 + 0.10 * contentEased;
-        contentY = (1.0 - contentEased) * 20;
+        contentScale = 0.94 + 0.06 * contentEased;
+        contentY = (1.0 - contentEased) * 22;
       }
     } else if (phase === "OFFER") {
       slideAnim = 1.0;
@@ -595,7 +618,7 @@ export class App {
       slideAnim = Math.max(0, 1.0 - easeInOutCubic(exitP));
       greetingVisible = false;
       contentOpacity = slideAnim;
-      contentScale = 0.95 + 0.05 * slideAnim;
+      contentScale = 0.96 + 0.04 * slideAnim;
       contentY = 0;
     }
 

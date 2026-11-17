@@ -24,6 +24,9 @@ export interface FaceTrackState {
   scale: number;
   image?: HTMLImageElement;
   cropJpeg?: string;
+  lastRawX?: number;
+  lastRawY?: number;
+  lastRawSize?: number;
 }
 
 export interface BlenderOptions {
@@ -67,9 +70,9 @@ export class FaceBlender {
       if (!track) {
         track = {
           id: face.id,
-          filterX: new OneEuroFilter(0.3, 0.008),
-          filterY: new OneEuroFilter(0.3, 0.008),
-          filterSize: new OneEuroFilter(0.3, 0.008),
+          filterX: new OneEuroFilter(0.2, 0.005),
+          filterY: new OneEuroFilter(0.2, 0.005),
+          filterSize: new OneEuroFilter(0.2, 0.005),
           currentX: rawCx,
           currentY: rawCy,
           currentSize: rawSize,
@@ -78,6 +81,9 @@ export class FaceBlender {
           alpha: 0.0,
           scale: 0.85,
           cropJpeg: face.crop_jpeg,
+          lastRawX: rawCx,
+          lastRawY: rawCy,
+          lastRawSize: rawSize,
         };
         track.filterX.filter(rawCx, nowMs);
         track.filterY.filter(rawCy, nowMs);
@@ -93,9 +99,18 @@ export class FaceBlender {
         this.tracks.set(face.id, track);
       } else {
         track.lastSeenMs = nowMs;
-        track.currentX = track.filterX.filter(rawCx, nowMs);
-        track.currentY = track.filterY.filter(rawCy, nowMs);
-        track.currentSize = track.filterSize.filter(rawSize, nowMs);
+        // Only update filter when coordinates change, avoiding phantom zero-velocity spikes
+        const posChanged = track.lastRawX !== rawCx || track.lastRawY !== rawCy;
+        if (posChanged) {
+          track.lastRawX = rawCx;
+          track.lastRawY = rawCy;
+          track.currentX = track.filterX.filter(rawCx, nowMs);
+          track.currentY = track.filterY.filter(rawCy, nowMs);
+        }
+        if (track.lastRawSize !== rawSize) {
+          track.lastRawSize = rawSize;
+          track.currentSize = track.filterSize.filter(rawSize, nowMs);
+        }
 
         // Double-buffered image update prevents flicker while browser decodes base64 JPEG
         if (face.crop_jpeg && face.crop_jpeg !== track.cropJpeg) {
@@ -144,6 +159,8 @@ export class FaceBlender {
 
     if (!this.offscreenCanvas) {
       this.offscreenCanvas = document.createElement("canvas");
+      this.offscreenCanvas.width = 512;
+      this.offscreenCanvas.height = 512;
       this.offscreenCtx = this.offscreenCanvas.getContext("2d");
     }
     if (!this.offscreenCtx || !this.offscreenCanvas) return;
@@ -154,11 +171,6 @@ export class FaceBlender {
 
       const renderSize = Math.round(track.currentSize * track.scale);
       if (renderSize <= 0) continue;
-
-      if (this.offscreenCanvas.width !== renderSize || this.offscreenCanvas.height !== renderSize) {
-        this.offscreenCanvas.width = renderSize;
-        this.offscreenCanvas.height = renderSize;
-      }
 
       const oCtx = this.offscreenCtx;
       oCtx.clearRect(0, 0, renderSize, renderSize);
@@ -190,6 +202,10 @@ export class FaceBlender {
       ctx.globalAlpha = track.alpha;
       ctx.drawImage(
         this.offscreenCanvas,
+        0,
+        0,
+        renderSize,
+        renderSize,
         Math.round(track.currentX - renderSize / 2),
         Math.round(track.currentY - renderSize / 2),
         renderSize,

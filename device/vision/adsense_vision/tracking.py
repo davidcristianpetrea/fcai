@@ -89,11 +89,25 @@ class IoUTracker:
             box, score, yaw, pitch, yaw_ratio, pitch_ratio, looking = parsed[best_index]
             bx, by, bw, bh = box
             obx, oby, obw, obh = track.box
+
+            # Adaptive smoothing: heavily filter micro-tremors when stationary, follow quickly on real movement
+            dist_pos = ((bx - obx) ** 2 + (by - oby) ** 2) ** 0.5
+            if dist_pos < 0.02:
+                alpha_pos = 0.15
+            elif dist_pos < 0.06:
+                alpha_pos = 0.35
+            else:
+                alpha_pos = 0.70
+
+            # Suppress breathing/pulsing artifact in face box dimensions
+            dist_size = abs(bw - obw) + abs(bh - obh)
+            alpha_size = 0.12 if dist_size < 0.025 else 0.40
+
             smoothed_box = (
-                0.7 * bx + 0.3 * obx,
-                0.7 * by + 0.3 * oby,
-                0.7 * bw + 0.3 * obw,
-                0.7 * bh + 0.3 * obh,
+                alpha_pos * bx + (1.0 - alpha_pos) * obx,
+                alpha_pos * by + (1.0 - alpha_pos) * oby,
+                alpha_size * bw + (1.0 - alpha_size) * obw,
+                alpha_size * bh + (1.0 - alpha_size) * obh,
             )
             smoothed_yaw_ratio = 0.6 * yaw_ratio + 0.4 * track.yaw_ratio if track.yaw_ratio != 0.0 else yaw_ratio
             smoothed_pitch_ratio = 0.6 * pitch_ratio + 0.4 * track.pitch_ratio if track.pitch_ratio != 0.55 else pitch_ratio
