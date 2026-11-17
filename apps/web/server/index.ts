@@ -268,8 +268,8 @@ app.post("/api/device/sync", async (c) => {
   if (claims?.kind === "device" && claims.deviceId !== body.device_id) return c.json({ error: "unauthorized" }, 401);
   const now = new Date().toISOString();
   db.prepare(
-    "INSERT INTO devices(id, name, device_secret_hash, last_seen_at, last_status) VALUES (?, ?, ?, ?, 'online') ON CONFLICT(id) DO UPDATE SET last_seen_at = excluded.last_seen_at, last_status = 'online'",
-  ).run(body.device_id, body.device_id, "legacy-sync", now);
+    "INSERT INTO devices(id, name, device_secret_hash, last_seen_at, last_status, created_at, updated_at) VALUES (?, ?, ?, ?, 'online', ?, ?) ON CONFLICT(id) DO UPDATE SET last_seen_at = excluded.last_seen_at, last_status = 'online'",
+  ).run(body.device_id, body.device_id, "legacy-sync", now, now, now);
   if (typeof body.applied_config_version === "number") db.prepare("UPDATE devices SET applied_config_version = ?, applied_at = ? WHERE id = ? AND applied_config_version <= ?").run(body.applied_config_version, now, body.device_id, body.applied_config_version);
   const row = db.prepare("SELECT name, config_json, config_version, applied_config_version, playlist_json FROM devices WHERE id = ?").get(body.device_id) as { name: string; config_json: string; config_version: number; applied_config_version: number; playlist_json: string } | undefined;
   const media = db.prepare("SELECT id, filename, content_type, size_bytes FROM assets WHERE state = 'ready' ORDER BY created_at").all();
