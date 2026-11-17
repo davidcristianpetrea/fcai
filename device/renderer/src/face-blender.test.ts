@@ -2,25 +2,25 @@ import { describe, expect, it } from "vitest";
 import { FaceBlender } from "./face-blender";
 
 describe("FaceBlender", () => {
-  it("clamps blend height to 18-40% of screen height", () => {
+  it("clamps blend height to 10-28% of screen height", () => {
     const blender = new FaceBlender(4);
     const screenHeight = 1000;
     const screenWidth = 1920;
 
-    // Small face (h = 0.05): 2.4 * 0.05 * 1000 = 120 -> clamped to 180 (18%)
-    blender.update([{ id: 1, x: 0.5, y: 0.5, w: 0.05, h: 0.05 }], 0, screenWidth, screenHeight);
+    // Small face (h = 0.04): 1.7 * 0.04 * 1000 = 68 -> clamped to 100 (10%)
+    blender.update([{ id: 1, x: 0.5, y: 0.5, w: 0.04, h: 0.04 }], 0, screenWidth, screenHeight);
     const trackSmall = blender.getTrack(1);
-    expect(trackSmall?.currentSize).toBe(180);
+    expect(trackSmall?.currentSize).toBe(100);
 
-    // Large face (h = 0.30): 2.4 * 0.30 * 1000 = 720 -> clamped to 400 (40%)
+    // Large face (h = 0.30): 1.7 * 0.30 * 1000 = 510 -> clamped to 280 (28%)
     blender.update([{ id: 2, x: 0.5, y: 0.5, w: 0.30, h: 0.30 }], 0, screenWidth, screenHeight);
     const trackLarge = blender.getTrack(2);
-    expect(trackLarge?.currentSize).toBe(400);
+    expect(trackLarge?.currentSize).toBe(280);
 
-    // Medium face (h = 0.10): 2.4 * 0.10 * 1000 = 240 -> between 180 and 400
+    // Medium face (h = 0.10): 1.7 * 0.10 * 1000 = 170 -> between 100 and 280
     blender.update([{ id: 3, x: 0.5, y: 0.5, w: 0.10, h: 0.10 }], 0, screenWidth, screenHeight);
     const trackMed = blender.getTrack(3);
-    expect(trackMed?.currentSize).toBe(240);
+    expect(trackMed?.currentSize).toBe(170);
   });
 
   it("fades/scales in over 250ms, holds for 600ms after lost, and fades out over 300ms", () => {

@@ -54,14 +54,14 @@ export class FaceBlender {
     const presentIds = new Set<number>();
     const sorted = faces.slice(0, this.maxPeople);
 
-    const minSize = height * 0.18;
-    const maxSize = height * 0.40;
+    const minSize = height * 0.10;
+    const maxSize = height * 0.28;
 
     for (const face of sorted) {
       presentIds.add(face.id);
       const rawCx = (face.x + face.w / 2.0) * width;
-      const rawCy = (face.y + face.h / 2.0 + 0.15 * face.h) * height;
-      const rawSize = Math.max(minSize, Math.min(maxSize, 2.4 * face.h * height));
+      const rawCy = (face.y + face.h / 2.0 + 0.08 * face.h) * height;
+      const rawSize = Math.max(minSize, Math.min(maxSize, 1.7 * face.h * height));
 
       let track = this.tracks.get(face.id);
       if (!track) {
@@ -85,8 +85,10 @@ export class FaceBlender {
 
         if (typeof Image !== "undefined" && face.crop_jpeg) {
           const img = new Image();
+          img.onload = () => {
+            track!.image = img;
+          };
           img.src = face.crop_jpeg;
-          track.image = img;
         }
         this.tracks.set(face.id, track);
       } else {
@@ -95,14 +97,15 @@ export class FaceBlender {
         track.currentY = track.filterY.filter(rawCy, nowMs);
         track.currentSize = track.filterSize.filter(rawSize, nowMs);
 
+        // Double-buffered image update prevents flicker while browser decodes base64 JPEG
         if (face.crop_jpeg && face.crop_jpeg !== track.cropJpeg) {
           track.cropJpeg = face.crop_jpeg;
-          if (track.image) {
-            track.image.src = face.crop_jpeg;
-          } else if (typeof Image !== "undefined") {
-            const img = new Image();
-            img.src = face.crop_jpeg;
-            track.image = img;
+          if (typeof Image !== "undefined") {
+            const nextImg = new Image();
+            nextImg.onload = () => {
+              track!.image = nextImg;
+            };
+            nextImg.src = face.crop_jpeg;
           }
         }
       }

@@ -16,10 +16,10 @@ def extract_face_crop(
     box: tuple[float, float, float, float],
     target_size: int = 320,
     jpeg_quality: int = 80,
-    crop_scale: float = 2.4,
-    y_offset_ratio: float = 0.15,
+    crop_scale: float = 1.7,
+    y_offset_ratio: float = 0.08,
 ) -> str | None:
-    """Extract a square crop around face (2.4x face height, centered slightly below face center)
+    """Extract a square crop around face (1.7x face height, centered naturally on face)
     and return as data:image/jpeg;base64 string.
     """
     if cv2 is None or frame is None or frame.size == 0:

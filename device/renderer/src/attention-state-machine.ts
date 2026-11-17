@@ -4,6 +4,7 @@ export interface AttentionStateMachineConfig {
   dwellSeconds?: number;
   offerMinSeconds?: number;
   exitAfterNobodySeconds?: number;
+  maxOfferSeconds?: number;
   cooldownSeconds?: number;
   lookingResetSeconds?: number;
   triggeringDurationMs?: number;
@@ -48,12 +49,13 @@ export class AttentionStateMachine {
       dwellSeconds: config.dwellSeconds ?? 3.0,
       offerMinSeconds: config.offerMinSeconds ?? 20.0,
       exitAfterNobodySeconds: config.exitAfterNobodySeconds ?? 6.0,
+      maxOfferSeconds: config.maxOfferSeconds,
       cooldownSeconds: config.cooldownSeconds ?? 8.0,
       lookingResetSeconds: config.lookingResetSeconds ?? 0.4,
       triggeringDurationMs: config.triggeringDurationMs ?? 1000,
       exitingDurationMs: config.exitingDurationMs ?? 1000,
       absentToRetriggerSeconds: config.absentToRetriggerSeconds ?? 3.0,
-    };
+    } as any;
   }
 
   public get isCooldownActive(): boolean {
@@ -69,6 +71,7 @@ export class AttentionStateMachine {
     if (config.dwellSeconds !== undefined) this.config.dwellSeconds = config.dwellSeconds;
     if (config.offerMinSeconds !== undefined) this.config.offerMinSeconds = config.offerMinSeconds;
     if (config.exitAfterNobodySeconds !== undefined) this.config.exitAfterNobodySeconds = config.exitAfterNobodySeconds;
+    if (config.maxOfferSeconds !== undefined) (this.config as any).maxOfferSeconds = config.maxOfferSeconds;
     if (config.cooldownSeconds !== undefined) this.config.cooldownSeconds = config.cooldownSeconds;
     if (config.lookingResetSeconds !== undefined) this.config.lookingResetSeconds = config.lookingResetSeconds;
     if (config.triggeringDurationMs !== undefined) this.config.triggeringDurationMs = config.triggeringDurationMs;
@@ -184,8 +187,11 @@ export class AttentionStateMachine {
         const nobodyPresent =
           this.lastFaceSeenMs === null ||
           nowMs - this.lastFaceSeenMs >= this.config.exitAfterNobodySeconds * 1000;
+        const maxDurationExceeded =
+          (this.config as any).maxOfferSeconds !== undefined &&
+          nowMs - this.offerStartedMs >= (this.config as any).maxOfferSeconds * 1000;
 
-        if (minimumTimeSatisfied && nobodyPresent) {
+        if ((minimumTimeSatisfied && nobodyPresent) || maxDurationExceeded) {
           this.state = "EXITING";
           this.stateStartedMs = nowMs;
         }

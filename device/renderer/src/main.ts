@@ -214,10 +214,11 @@ export class App {
 
     // Update state machine configuration without destroying current tracking state
     this.stateMachine.updateConfig({
-      dwellSeconds: config.lookTime || 3.0,
-      offerMinSeconds: 20.0,
-      exitAfterNobodySeconds: 6.0,
-      cooldownSeconds: 8.0,
+      dwellSeconds: config.lookTime || 2.5,
+      offerMinSeconds: 8.0,
+      exitAfterNobodySeconds: 4.0,
+      maxOfferSeconds: 22.0,
+      cooldownSeconds: 6.0,
     });
 
     // Update media playlist
@@ -524,17 +525,19 @@ export class App {
 
   private renderTemplate(phase: string, nowMs: number): void {
     const config = this.state.sync?.device_config || {};
-    const template = config.template || "simple";
     const colors = getContrastColors(config.offerBackground);
-    const bgColor = config.offerBackground || "#111827";
+    const bgColor = config.offerBackground || "#0f172a";
 
     const w = window.innerWidth;
     const h = window.innerHeight;
 
-    if (!this.irisCtx) return;
-    this.irisCtx.clearRect(0, 0, w, h);
+    if (this.irisCtx) {
+      this.irisCtx.clearRect(0, 0, w, h);
+    }
 
     if (phase === "STANDBY" || phase === "COOLDOWN") {
+      this.standbyContainer.style.filter = "none";
+      this.standbyContainer.style.opacity = "1";
       this.offerContainer.style.display = "none";
       this.offerContainer.innerHTML = "";
       return;
@@ -542,82 +545,71 @@ export class App {
 
     this.offerContainer.style.display = "flex";
 
-    let irisProgress = 1.0;
-    let contentOpacity = 1.0;
-    let qrScale = 1.0;
-
     const stateElapsed = nowMs - this.stateMachine.stateStartedMs;
+    const animDuration = 800; // ms for smooth slide/blur transition
 
+    let animP = 1.0;
     if (phase === "TRIGGERING") {
-      const triggerDuration = 1000;
-      irisProgress = Math.min(1.0, stateElapsed / triggerDuration);
-      contentOpacity = Math.max(0, (stateElapsed - 600) / 400);
-      qrScale = 0.92 + 0.08 * contentOpacity;
+      const p = Math.min(1.0, stateElapsed / animDuration);
+      animP = easeInOutCubic(p);
     } else if (phase === "OFFER") {
-      irisProgress = 1.0;
-      contentOpacity = 1.0;
-      qrScale = 1.0;
+      animP = 1.0;
     } else if (phase === "EXITING") {
-      const exitDuration = 1000;
-      const exitProgress = Math.min(1.0, stateElapsed / exitDuration);
-      contentOpacity = Math.max(0, 1.0 - exitProgress * 2.5);
-      qrScale = 0.92 + 0.08 * contentOpacity;
-      irisProgress = Math.max(0, 1.0 - exitProgress);
+      const p = Math.min(1.0, stateElapsed / animDuration);
+      animP = Math.max(0, 1.0 - easeInOutCubic(p));
     }
 
-    if (template === "recruit") {
-      // Looney tunes iris animation: background closes in around each face blend
-      const easeP = easeInOutCubicOvershoot(irisProgress);
-      const maxRadius = Math.hypot(w, h);
-      const activeTracks = this.blender.getActiveTracks();
+    // Soft blur & subtle dimming on the standby video side during the offer
+    const blurPx = (7 * animP).toFixed(1);
+    const dimVal = (1.0 - 0.22 * animP).toFixed(2);
+    const opVal = (1.0 - 0.15 * animP).toFixed(2);
+    this.standbyContainer.style.filter = `blur(${blurPx}px) brightness(${dimVal})`;
+    this.standbyContainer.style.opacity = opVal;
 
-      this.irisCtx.save();
-      this.irisCtx.fillStyle = bgColor;
-      this.irisCtx.fillRect(0, 0, w, h);
-
-      // Cut out holes centered on each face blend
-      this.irisCtx.globalCompositeOperation = "destination-out";
-      if (activeTracks.length > 0) {
-        for (const track of activeTracks) {
-          const targetRadius = (track.currentSize / 2) * 1.15;
-          const currentRadius = maxRadius + (targetRadius - maxRadius) * easeP;
-          this.irisCtx.beginPath();
-          this.irisCtx.arc(track.currentX, track.currentY, currentRadius, 0, Math.PI * 2);
-          this.irisCtx.fill();
-        }
-      } else {
-        const currentRadius = maxRadius * (1 - easeP);
-        this.irisCtx.beginPath();
-        this.irisCtx.arc(w / 4, h / 2, currentRadius, 0, Math.PI * 2);
-        this.irisCtx.fill();
-      }
-      this.irisCtx.restore();
-    } else {
-      // Simple template: soft fade in background
-      this.irisCtx.save();
-      this.irisCtx.globalAlpha = irisProgress;
-      this.irisCtx.fillStyle = bgColor;
-      this.irisCtx.fillRect(0, 0, w, h);
-      this.irisCtx.restore();
-    }
-
-    // Render 50/50 offer layout
+    // Content side opposite people; slides in from outer edge
     const contentSide = this.lockedPeopleSide === "left" ? "right" : "left";
-    const slideOffset = template === "simple" ? (1.0 - contentOpacity) * (contentSide === "right" ? 40 : -40) : 0;
+    const slidePercent = (1.0 - animP) * 100;
+    const slideTransform =
+      contentSide === "right"
+        ? `translate3d(${slidePercent.toFixed(2)}%, 0, 0)`
+        : `translate3d(-${slidePercent.toFixed(2)}%, 0, 0)`;
+
+    const qrScale = 0.90 + 0.10 * animP;
+
+    // Smooth blur & color gradient blending the media half into the offer side
+    const gradientBg =
+      contentSide === "right"
+        ? `linear-gradient(to right, transparent 0%, rgba(15, 23, 42, 0.40) 10%, rgba(15, 23, 42, 0.85) 24%, ${bgColor} 42%, ${bgColor} 100%)`
+        : `linear-gradient(to left, transparent 0%, rgba(15, 23, 42, 0.40) 10%, rgba(15, 23, 42, 0.85) 24%, ${bgColor} 42%, ${bgColor} 100%)`;
 
     const headline = config.headline || "20% reducere";
     const subtext = config.subtext || "Scanează codul QR cu telefonul";
-    const caption = config.caption || "";
+
+    // Clean caption: filter out any placeholder text
+    const rawCaption = (config.caption || "").trim();
+    const isJunkCaption =
+      rawCaption.toLowerCase().includes("poza cu m") ||
+      rawCaption.toLowerCase().includes("aici poza") ||
+      rawCaption.toLowerCase().includes("mancare");
+    const caption = isJunkCaption ? "" : rawCaption;
 
     this.offerContainer.style.flexDirection = contentSide === "right" ? "row" : "row-reverse";
     this.offerContainer.innerHTML = `
-      <div class="offer-half media-half" style="opacity: ${contentOpacity}"></div>
+      <div class="offer-half media-half" style="flex: 1; height: 100%; pointer-events: none;"></div>
       <div class="offer-half content-half" style="
-        opacity: ${contentOpacity};
-        transform: translate3d(${slideOffset}px, 0, 0);
+        flex: 1;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 5vw;
+        background: ${gradientBg};
+        transform: ${slideTransform};
+        opacity: ${animP.toFixed(2)};
         color: ${colors.text};
+        will-change: transform, opacity;
       ">
-        <div class="offer-card" style="background: transparent;">
+        <div class="offer-card" style="background: transparent; max-width: 620px;">
           <h1 class="offer-headline" style="color: ${colors.text};">${headline}</h1>
           <p class="offer-subtext" style="color: ${colors.muted};">${subtext}</p>
           <div class="qr-wrapper" style="transform: scale(${qrScale.toFixed(4)});">
