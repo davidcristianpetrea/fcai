@@ -124,6 +124,7 @@ class AgentRuntime:
                         await asyncio.to_thread(self.cloud.download_media, item["id"], token, target)
                     manifest.append({**item, "local": f"/media/{item['id']}"})
                 applied_version = int(synced.get("config_version", 0))
+                previous_applied = int(current.get("applied_config_version", 0))
                 self.store.merge({
                     "device_config": synced.get("config", {}),
                     "display_name": synced.get("name", self.config.device_id),
@@ -134,10 +135,22 @@ class AgentRuntime:
                     "last_sync": synced,
                     "last_contact_at": synced.get("last_contact_at"),
                 })
-                print(f"agent: sync ok; media={len(manifest)} config={synced.get('config_version', 0)}", flush=True)
+                print(f"agent: sync ok; media={len(manifest)} config={applied_version}", flush=True)
+                if applied_version > previous_applied:
+                    try:
+                        await asyncio.to_thread(
+                            self.cloud.sync,
+                            {
+                                "device_id": current.get("device_id", self.config.device_id),
+                                "applied_config_version": applied_version,
+                            },
+                            token,
+                        )
+                    except Exception:
+                        pass
             except Exception as error:
                 print(f"agent: sync error: {error}", flush=True)
-            await asyncio.sleep(10)
+            await asyncio.sleep(4)
 
     async def stop(self) -> None:
         if self.websocket_server:
