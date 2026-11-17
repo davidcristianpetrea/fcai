@@ -114,6 +114,10 @@ export class App {
   private frameCount = 0;
   private lastFpsTime = 0;
 
+  private pendingConfig: DeviceConfig = {};
+  private activeConfig: DeviceConfig = {};
+  private pendingMediaList: MediaItem[] = [];
+
   constructor(root: HTMLElement) {
     this.root = root;
     this.root.innerHTML = "";
@@ -203,6 +207,10 @@ export class App {
   private updateState(next: DeviceState): void {
     this.state = next;
     const config = this.state.sync?.device_config || {};
+    this.pendingConfig = config;
+    if (!this.currentItemStartedMs) {
+      this.activeConfig = { ...config };
+    }
 
     // Update state machine configuration
     this.stateMachine = new AttentionStateMachine({
@@ -216,11 +224,14 @@ export class App {
     const allMedia = this.state.sync?.media || [];
     const playlistIds = this.state.sync?.playlist || [];
     if (playlistIds.length > 0) {
-      this.mediaList = playlistIds
+      this.pendingMediaList = playlistIds
         .map((id) => allMedia.find((m) => m.id === id))
         .filter(Boolean) as MediaItem[];
     } else {
-      this.mediaList = allMedia;
+      this.pendingMediaList = allMedia;
+    }
+    if (!this.currentItemStartedMs) {
+      this.mediaList = this.pendingMediaList;
     }
 
     // Update QR code if link changed
@@ -232,6 +243,21 @@ export class App {
       generateQrDataUrl(qrUrl, pixelSize).then((dataUrl) => {
         this.qrDataUrl = dataUrl;
       });
+    }
+  }
+
+  private preloadNextMedia(): void {
+    if (this.mediaList.length <= 1) return;
+    const nextIdx = (this.currentMediaIndex + 1) % this.mediaList.length;
+    const nextItem = this.mediaList[nextIdx];
+    if (!nextItem) return;
+    if (nextItem.content_type?.startsWith("video/")) {
+      const v = document.createElement("video");
+      v.preload = "auto";
+      v.src = nextItem.local;
+    } else {
+      const img = new Image();
+      img.src = nextItem.local;
     }
   }
 
@@ -426,6 +452,10 @@ export class App {
       incoming.style.filter = "none";
       incoming.style.webkitMaskImage = "none";
     }
+    // Apply new configuration at next item boundary
+    this.activeConfig = { ...this.pendingConfig };
+    this.mediaList = this.pendingMediaList.length > 0 ? this.pendingMediaList : this.mediaList;
+    this.preloadNextMedia();
   }
 
   private renderFaceBlending(faces: InputFace[], nowMs: number): void {
