@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 import json
 USER_AGENT = "AdSense-Display/0.1.0"
 
@@ -32,8 +33,19 @@ class HttpCloudLink:
         if not self.base_url:
             return {"ok": False, "reason": "cloud_not_configured"}
         request = self._request(f"{self.base_url.rstrip('/')}/api/device/sync", data=json.dumps(payload).encode(), token=token, method="POST")
-        with urlopen(request, timeout=self.timeout) as response:
-            return json.loads(response.read())
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                return json.loads(response.read())
+        except HTTPError as e:
+            if e.code in (401, 404):
+                try:
+                    data = json.loads(e.read())
+                    if isinstance(data, dict):
+                        return data
+                except Exception:
+                    pass
+                return {"ok": False, "deleted": True, "error": "device_deleted"}
+            raise
 
     def pair_request(self) -> dict[str, Any]:
         request = self._request(f"{self.base_url.rstrip('/')}/api/device/pair-request", data=b"{}", method="POST")

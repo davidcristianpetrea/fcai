@@ -101,6 +101,20 @@ class AgentRuntime:
                     },
                     token,
                 )
+                if synced.get("deleted") or not synced.get("ok", True):
+                    print("agent: device deleted or unlinked; resetting to pairing", flush=True)
+                    self.store.merge({
+                        "device_token": "",
+                        "device_id": "",
+                        "pairing": {},
+                        "device_config": {},
+                        "playlist": [],
+                        "media": [],
+                        "config_version": 0,
+                        "applied_config_version": 0,
+                    })
+                    asyncio.create_task(self._pairing_loop())
+                    return
                 media_dir = self.config.data_dir / "media"
                 media_dir.mkdir(parents=True, exist_ok=True)
                 manifest = []

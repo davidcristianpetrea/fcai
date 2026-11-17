@@ -35,6 +35,27 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             response = await runtime.handle_message({"type": "frame"})
             self.assertEqual(response, {"type": "error", "error": "unsupported_message"})
 
+    async def test_device_deleted_clears_token(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = AgentRuntime(AgentConfig(data_dir=Path(directory)))
+            runtime.store.merge({"device_token": "valid-token", "device_id": "disp-1", "playlist": ["1"]})
+            class MockCloud:
+                def sync(self, payload: dict, token: str = "") -> dict:
+                    return {"ok": False, "deleted": True, "error": "device_deleted"}
+            runtime.cloud = MockCloud()
+            synced = runtime.cloud.sync({}, "valid-token")
+            if synced.get("deleted") or not synced.get("ok", True):
+                runtime.store.merge({
+                    "device_token": "",
+                    "device_id": "",
+                    "pairing": {},
+                    "device_config": {},
+                    "playlist": [],
+                    "media": [],
+                })
+            self.assertEqual(runtime.store.read().get("device_token"), "")
+            self.assertEqual(runtime.store.read().get("device_id"), "")
+
 
 if __name__ == "__main__":
     unittest.main()

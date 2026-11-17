@@ -1,4 +1,5 @@
 import { mkdir, readdir, readFile, rm } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 import Database from "better-sqlite3";
 
@@ -8,7 +9,7 @@ export async function openDatabase(dataDir: string): Promise<Database.Database> 
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec("CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)");
-  const migrationDir = path.resolve(process.cwd(), "apps/web/migrations");
+  const migrationDir = path.resolve(fileURLToPath(new URL("../migrations", import.meta.url)));
   const applied = new Set((db.prepare("SELECT name FROM schema_migrations").all() as { name: string }[]).map((row) => row.name));
   for (const name of (await readdir(migrationDir)).filter((item) => item.endsWith(".sql")).sort()) {
     if (applied.has(name)) continue;

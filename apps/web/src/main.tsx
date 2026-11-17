@@ -222,16 +222,31 @@ function DisplaysPanel({ locale }: { locale: Locale }) {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [notice, setNotice] = useState("");
-  const refresh = () => { void fetch("/api/devices", { headers: authHeaders() }).then((response) => response.json() as Promise<{ devices: typeof devices }>).then((payload) => setDevices(payload.devices)); };
-  useEffect(refresh, []);
+  const refresh = () => { void fetch("/api/devices", { headers: authHeaders() }).then((response) => response.json() as Promise<{ devices: typeof devices }>).then((payload) => setDevices(payload.devices || [])); };
+  useEffect(() => {
+    refresh();
+    const handleChanged = () => refresh();
+    window.addEventListener("adsense:devices-changed", handleChanged);
+    return () => window.removeEventListener("adsense:devices-changed", handleChanged);
+  }, []);
   const pair = async (event: FormEvent) => {
     event.preventDefault();
     const response = await fetch("/api/devices/pair", { method: "POST", headers: { ...authHeaders(), "content-type": "application/json" }, body: JSON.stringify({ code, name }) });
     if (!response.ok) { setNotice(locale === "ro" ? "Codul nu este valid sau a expirat." : "That code is invalid or expired."); return; }
-    setNotice(locale === "ro" ? "Ecranul a fost adaugat." : "Display added.");
+    setNotice(locale === "ro" ? "Ecranul a fost adăugat." : "Display added.");
     setCode(""); setName(""); refresh();
+    window.dispatchEvent(new CustomEvent("adsense:devices-changed"));
   };
-  return <div className="panel-grid"><section className="panel"><h2>{locale === "ro" ? "Adaugă ecran" : "Add display"}</h2><p>{locale === "ro" ? "Introdu codul afișat pe televizor." : "Enter the code shown on the TV."}</p><form className="offer-form" onSubmit={pair}><label>{locale === "ro" ? "Cod din 6 cifre" : "6-digit code"}<input inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} required /></label><label>{locale === "ro" ? "Numele ecranului" : "Display name"}<input value={name} placeholder={`Ecran ${devices.length + 1}`} onChange={(event) => setName(event.target.value)} /></label><button className="button primary" type="submit">{locale === "ro" ? "Adaugă" : "Add"}</button>{notice && <p className="notice">{notice}</p>}</form></section><section className="panel"><h2>{t("displays")}</h2>{devices.length === 0 ? <p>{t("noActivity")}</p> : devices.map((device) => <a className="upload-heading display-row" href="#/displays" key={device.id}><span><strong>{device.name}</strong><small>{device.last_seen_at ? `Ultima conectare: ${new Date(device.last_seen_at).toLocaleString(locale === "ro" ? "ro-RO" : "en-US")}` : "Nu s-a conectat încă"}</small></span><strong className={device.online ? "online" : "offline"}>{device.online ? "Online" : "Offline"}</strong></a>)}</section></div>;
+  const deleteDevice = async (id: string) => {
+    if (!window.confirm("Sigur vrei să elimini acest ecran? Acțiunea nu poate fi anulată.")) return;
+    const response = await fetch(`/api/devices/${id}`, { method: "DELETE", headers: authHeaders() });
+    if (response.ok) {
+      setNotice(locale === "ro" ? "Ecranul a fost eliminat." : "Display removed.");
+      refresh();
+      window.dispatchEvent(new CustomEvent("adsense:devices-changed"));
+    }
+  };
+  return <div className="panel-grid"><section className="panel"><h2>{locale === "ro" ? "Adaugă ecran" : "Add display"}</h2><p>{locale === "ro" ? "Introdu codul afișat pe televizor." : "Enter the code shown on the TV."}</p><form className="offer-form" onSubmit={pair}><label>{locale === "ro" ? "Cod din 6 cifre" : "6-digit code"}<input inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} required /></label><label>{locale === "ro" ? "Numele ecranului" : "Display name"}<input value={name} placeholder={`Ecran ${devices.length + 1}`} onChange={(event) => setName(event.target.value)} /></label><button className="button primary" type="submit">{locale === "ro" ? "Adaugă" : "Add"}</button>{notice && <p className="notice">{notice}</p>}</form></section><section className="panel"><h2>{t("displays")}</h2>{devices.length === 0 ? <p>{t("noActivity")}</p> : devices.map((device) => <div className="upload-heading display-row" key={device.id}><span><strong>{device.name}</strong><small>{device.last_seen_at ? `${locale === "ro" ? "Ultima conectare:" : "Last seen:"} ${new Date(device.last_seen_at).toLocaleString(locale === "ro" ? "ro-RO" : "en-US")}` : (locale === "ro" ? "Nu s-a conectat încă" : "Never connected")}</small></span><div style={{ display: "flex", alignItems: "center", gap: "10px" }}><strong className={device.online ? "online" : "offline"}>{device.online ? "Online" : "Offline"}</strong><button type="button" className="text-button danger" onClick={() => void deleteDevice(device.id)}>{locale === "ro" ? "Elimină ecranul" : "Delete"}</button></div></div>)}</section></div>;
 }
 
 function LeadsPanel({ locale }: { locale: Locale }) {
