@@ -12,8 +12,8 @@ import {
 import "./styles.css";
 import { getApiState, type ApiState } from "./status.js";
 
-type Route = "dashboard" | "displays" | "media" | "leads" | "stats" | "help" | "account" | "offer" | "privacy";
-const routeKeys: Record<Exclude<Route, "offer" | "privacy">, TranslationKey> = {
+type Route = "dashboard" | "displays" | "media" | "leads" | "stats" | "help" | "account" | "offer" | "privacy" | "preview";
+const routeKeys: Record<Exclude<Route, "offer" | "privacy" | "preview">, TranslationKey> = {
   dashboard: "dashboard",
   displays: "displays",
   media: "media",
@@ -27,6 +27,7 @@ function routeFromLocation(): Route {
   const path = window.location.pathname.replace(/\/+$/u, "") || "/";
   if (path === "/offer") return "offer";
   if (path === "/privacy") return "privacy";
+  if (path === "/preview") return "preview";
   const hash = window.location.hash.replace(/^#\/?/u, "") as Route;
   return hash in routeKeys ? hash : "dashboard";
 }
@@ -146,6 +147,440 @@ function OfferPage({ locale }: { locale: Locale }) {
         </form>
       </section>
     </main>
+  );
+}
+
+function RemoteLivePreviewPage({ locale }: { locale: Locale }) {
+  const searchParams = useMemo(() => new URLSearchParams(window.location.search), []);
+  const deviceId = searchParams.get("d") || "";
+  const isEmbed = searchParams.get("embed") === "1";
+
+  const [device, setDevice] = useState<{ id: string; name: string; online: boolean; config: Record<string, unknown> } | null>(null);
+  const [phase, setPhase] = useState<"STANDBY" | "GREETING" | "OFFER">("STANDBY");
+  const [greetingAnim, setGreetingAnim] = useState({ scale: 0.8, opacity: 0 });
+  const [offerProgress, setOfferProgress] = useState(0);
+  const [faceX, setFaceX] = useState(38);
+  const [faceY, setFaceY] = useState(48);
+  const [autoLoop, setAutoLoop] = useState(true);
+
+  // Poll device config
+  useEffect(() => {
+    if (!deviceId) return;
+    const fetchInfo = () => {
+      fetch(`/api/public/display/${encodeURIComponent(deviceId)}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data) setDevice(data);
+        })
+        .catch(() => {});
+    };
+    fetchInfo();
+    const interval = setInterval(fetchInfo, 5000);
+    return () => clearInterval(interval);
+  }, [deviceId]);
+
+  // Subtle face float animation in STANDBY
+  useEffect(() => {
+    if (phase !== "STANDBY") return;
+    const interval = setInterval(() => {
+      setFaceX(35 + Math.sin(Date.now() / 1400) * 8);
+      setFaceY(46 + Math.cos(Date.now() / 1800) * 6);
+    }, 50);
+    return () => clearInterval(interval);
+  }, [phase]);
+
+  // Auto loop simulation
+  useEffect(() => {
+    if (!autoLoop) return;
+    let timer: NodeJS.Timeout;
+
+    if (phase === "STANDBY") {
+      timer = setTimeout(() => {
+        setPhase("GREETING");
+      }, 5500);
+    } else if (phase === "GREETING") {
+      setGreetingAnim({ scale: 0.6, opacity: 0 });
+      const inTimer = setTimeout(() => setGreetingAnim({ scale: 1.05, opacity: 1 }), 40);
+      const settleTimer = setTimeout(() => setGreetingAnim({ scale: 1.0, opacity: 1 }), 320);
+      timer = setTimeout(() => {
+        setPhase("OFFER");
+      }, 1400);
+      return () => {
+        clearTimeout(timer);
+        clearTimeout(inTimer);
+        clearTimeout(settleTimer);
+      };
+    } else if (phase === "OFFER") {
+      const startTime = Date.now();
+      const duration = 850;
+      const animInterval = setInterval(() => {
+        const p = Math.min(1.0, (Date.now() - startTime) / duration);
+        const eased = 1 - Math.pow(1 - p, 3);
+        setOfferProgress(eased);
+        // Face glides smoothly to the left half (media/people side) - NO teleportation!
+        setFaceX(35 - eased * 12);
+        if (p >= 1.0) clearInterval(animInterval);
+      }, 20);
+
+      timer = setTimeout(() => {
+        clearInterval(animInterval);
+        setOfferProgress(0);
+        setPhase("STANDBY");
+      }, 7000);
+
+      return () => {
+        clearTimeout(timer);
+        clearInterval(animInterval);
+      };
+    }
+
+    return () => clearTimeout(timer);
+  }, [phase, autoLoop]);
+
+  const triggerLook = () => {
+    if (phase === "STANDBY") {
+      setPhase("GREETING");
+    }
+  };
+
+  const resetToStandby = () => {
+    setOfferProgress(0);
+    setPhase("STANDBY");
+  };
+
+  const cfg = device?.config || {};
+  const bgColor = String(cfg.offerBackground || "#1c130e");
+  const accentColor = String(cfg.accentColor || "#f59e0b");
+  const greetingText = String(cfg.greetingText || "Hei!");
+  const headline = String(cfg.headline || "20% reducere");
+  const subtext = String(cfg.subtext || "Completează formularul pentru a revendica oferta");
+  const playlist = Array.isArray(cfg.playlist) ? (cfg.playlist as string[]) : [];
+  const activeMediaId = playlist.length > 0 ? playlist[0] : null;
+  const qrLink = String(cfg.offerLink || "https://adsense.davidpetrea.ro/offer");
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrLink)}`;
+
+  return (
+    <div
+      style={{
+        width: "100vw",
+        height: "100vh",
+        background: "#0a0a0c",
+        overflow: "hidden",
+        position: "relative",
+        display: "flex",
+        flexDirection: "column",
+        fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
+      }}
+    >
+      {/* Top Header if not embedded */}
+      {!isEmbed && (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 100,
+            padding: "12px 20px",
+            background: "rgba(18, 10, 6, 0.88)",
+            backdropFilter: "blur(12px)",
+            borderBottom: "1px solid rgba(245, 158, 11, 0.25)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            color: "#fff",
+            flexWrap: "wrap",
+            gap: "10px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <span style={{ fontSize: "20px" }}>📺</span>
+            <div>
+              <strong style={{ fontSize: "16px", color: "#fffbeb" }}>{device?.name || "Ecran AdSense"}</strong>
+              <span style={{ fontSize: "12px", color: device?.online ? "#4ade80" : "#94a3b8", marginLeft: "10px" }}>
+                ● {device?.online ? (locale === "ro" ? "Online (Conectat)" : "Online") : "Offline"}
+              </span>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+            <button
+              className="button primary"
+              style={{ background: "#f59e0b", color: "#1c130e", fontWeight: 700, padding: "8px 16px", fontSize: "13px" }}
+              onClick={triggerLook}
+              disabled={phase !== "STANDBY"}
+            >
+              👁 {locale === "ro" ? "Simulează privire (Trigger Look)" : "Simulate Look"}
+            </button>
+            <button
+              className="button secondary"
+              style={{ padding: "8px 14px", fontSize: "13px" }}
+              onClick={resetToStandby}
+            >
+              🔄 Standby
+            </button>
+            <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", cursor: "pointer", color: "#e6d5c3" }}>
+              <input type="checkbox" checked={autoLoop} onChange={(e) => setAutoLoop(e.target.checked)} />
+              {locale === "ro" ? "Buclă automată" : "Auto Loop"}
+            </label>
+            <a href="/#displays" className="button secondary" style={{ padding: "8px 14px", fontSize: "13px" }}>
+              ← {locale === "ro" ? "Înapoi la panou" : "Back to dashboard"}
+            </a>
+          </div>
+        </div>
+      )}
+
+      {/* Main Screen Container */}
+      <div
+        style={{
+          flex: 1,
+          width: "100%",
+          height: "100%",
+          position: "relative",
+          overflow: "hidden",
+          background: "#000",
+        }}
+      >
+        {/* Layer 1: Standby Media (Video / Image) */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            filter: phase === "OFFER" ? "blur(14px) brightness(0.65)" : "none",
+            opacity: phase === "OFFER" ? 0.8 : 1.0,
+            transition: "filter 0.8s ease, opacity 0.8s ease",
+            overflow: "hidden",
+          }}
+        >
+          {activeMediaId ? (
+            <video
+              src={`/api/public/media/${activeMediaId}`}
+              autoPlay
+              loop
+              muted
+              playsInline
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          ) : (
+            <div
+              style={{
+                width: "100%",
+                height: "100%",
+                background: "radial-gradient(circle at 50% 40%, #2a1a12, #120a06 75%)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#fff",
+                textAlign: "center",
+                padding: "20px",
+              }}
+            >
+              <h1
+                style={{
+                  fontSize: "clamp(3rem, 7vw, 6rem)",
+                  fontWeight: 900,
+                  margin: 0,
+                  color: "#f59e0b",
+                  textShadow: "0 6px 30px rgba(245, 158, 11, 0.35)",
+                }}
+              >
+                {device?.name || "AdSense"}
+              </h1>
+              <p style={{ fontSize: "clamp(1.2rem, 2.5vw, 2rem)", color: "#e6d5c3", marginTop: "1rem" }}>
+                {locale === "ro" ? "Afișaj inteligent interactiv" : "Interactive Smart Display"}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Layer 2: Live Face Avatar (Smoothly glides into media half, NO teleportation!) */}
+        <div
+          style={{
+            position: "absolute",
+            left: `${faceX}%`,
+            top: `${faceY}%`,
+            transform: "translate(-50%, -50%)",
+            width: "clamp(120px, 14vw, 190px)",
+            height: "clamp(120px, 14vw, 190px)",
+            borderRadius: "50%",
+            border: `3px solid ${accentColor}`,
+            boxShadow: `0 0 35px ${accentColor}60, inset 0 0 25px rgba(0,0,0,0.6)`,
+            pointerEvents: "none",
+            zIndex: 40,
+            overflow: "hidden",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0,0,0,0.25)",
+            backdropFilter: "contrast(1.1) brightness(1.05)",
+            transition: phase === "STANDBY" ? "transform 0.1s linear" : "left 0.8s cubic-bezier(0.16, 1, 0.3, 1)",
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: `radial-gradient(circle, transparent 55%, ${bgColor} 95%)`,
+            }}
+          />
+          <span style={{ fontSize: "2.5rem", opacity: 0.8 }}>👤</span>
+        </div>
+
+        {/* Layer 3: Centered "Hei!" Greeting Animation */}
+        {phase === "GREETING" && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 50,
+              pointerEvents: "none",
+              background: "rgba(18, 10, 6, 0.35)",
+              backdropFilter: "blur(4px)",
+              opacity: greetingAnim.opacity,
+              transform: `scale(${greetingAnim.scale})`,
+              transition: "transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.25s ease",
+            }}
+          >
+            <span
+              style={{
+                fontSize: "clamp(5.8rem, 13vw, 11rem)",
+                fontWeight: 900,
+                letterSpacing: "-0.04em",
+                color: accentColor,
+                textShadow: `0 16px 60px ${accentColor}80, 0 4px 16px rgba(0,0,0,0.7)`,
+                lineHeight: 1,
+                textAlign: "center",
+              }}
+            >
+              {greetingText}
+            </span>
+          </div>
+        )}
+
+        {/* Layer 4: 50/50 Split Offer with QR Code */}
+        {phase === "OFFER" && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              zIndex: 60,
+              pointerEvents: "none",
+            }}
+          >
+            {/* Left: Media & Face Half */}
+            <div style={{ flex: 1, height: "100%", position: "relative" }} />
+
+            {/* Right: Slide-in Offer Half with warm espresso & amber styling */}
+            <div
+              style={{
+                flex: 1,
+                height: "100%",
+                background: `linear-gradient(to right, transparent 0%, rgba(28, 19, 14, 0.45) 8%, rgba(28, 19, 14, 0.92) 24%, ${bgColor} 44%, ${bgColor} 100%)`,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+                padding: "clamp(24px, 4vw, 60px)",
+                transform: `translate3d(${(1 - offerProgress) * 60}%, 0, 0)`,
+                opacity: offerProgress,
+                transition: "transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease",
+              }}
+            >
+              <div style={{ maxWidth: "560px", display: "flex", flexDirection: "column", gap: "1rem" }}>
+                <span
+                  style={{
+                    fontSize: "clamp(1.1rem, 2vw, 1.6rem)",
+                    fontWeight: 800,
+                    color: accentColor,
+                    letterSpacing: "0.05em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {greetingText}
+                </span>
+                <h1
+                  style={{
+                    fontSize: "clamp(2.4rem, 5vw, 4.4rem)",
+                    fontWeight: 900,
+                    lineHeight: 1.08,
+                    letterSpacing: "-0.03em",
+                    margin: 0,
+                    color: "#fffbeb",
+                    textShadow: "0 4px 20px rgba(0,0,0,0.6)",
+                  }}
+                >
+                  {headline}
+                </h1>
+                <p
+                  style={{
+                    fontSize: "clamp(1.2rem, 2.2vw, 1.9rem)",
+                    lineHeight: 1.35,
+                    margin: 0,
+                    fontWeight: 500,
+                    color: "#e6d5c3",
+                  }}
+                >
+                  {subtext}
+                </p>
+                <div style={{ marginTop: "0.5rem", display: "inline-flex" }}>
+                  <div
+                    style={{
+                      background: "#ffffff",
+                      padding: "clamp(14px, 2vw, 24px)",
+                      borderRadius: "clamp(18px, 2.5vw, 28px)",
+                      boxShadow: "0 24px 60px rgba(0,0,0,0.55), 0 0 0 1px rgba(245, 158, 11, 0.25)",
+                      display: "inline-flex",
+                    }}
+                  >
+                    <img
+                      src={qrUrl}
+                      alt="QR Code"
+                      style={{
+                        width: "clamp(140px, 18vw, 230px)",
+                        height: "clamp(140px, 18vw, 230px)",
+                        display: "block",
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Floating trigger button when embedded */}
+        {isEmbed && (
+          <button
+            onClick={triggerLook}
+            disabled={phase !== "STANDBY"}
+            style={{
+              position: "absolute",
+              bottom: "12px",
+              right: "12px",
+              zIndex: 90,
+              background: "rgba(18, 10, 6, 0.85)",
+              border: "1px solid rgba(245, 158, 11, 0.4)",
+              color: "#f59e0b",
+              borderRadius: "20px",
+              padding: "6px 14px",
+              fontSize: "12px",
+              fontWeight: 700,
+              cursor: phase === "STANDBY" ? "pointer" : "default",
+              backdropFilter: "blur(8px)",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+            }}
+          >
+            <span>👁</span>
+            <span>{phase === "STANDBY" ? (locale === "ro" ? "Simulează privire" : "Simulate look") : (locale === "ro" ? "Activ..." : "Active...")}</span>
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -352,7 +787,8 @@ function DisplaysView({ locale }: { locale: Locale }) {
     subtext: "Completează formularul pentru a revendica oferta",
     caption: "",
     qrSize: "M",
-    offerBackground: "#111827",
+    offerBackground: "#1c130e",
+    accentColor: "#f59e0b",
     playlist: [],
   };
 
@@ -648,10 +1084,23 @@ function DisplaysView({ locale }: { locale: Locale }) {
                     <span className="display-icon">📺</span>
                     <span className="display-title">{device.name}</span>
                   </div>
-                  <span className={`status-pill ${device.online ? "online" : "offline"}`}>
-                    <span className="status-dot-pulse"></span>
-                    {device.online ? "Online" : "Offline"}
-                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span className={`status-pill ${device.online ? "online" : "offline"}`}>
+                      <span className="status-dot-pulse"></span>
+                      {device.online ? "Online" : "Offline"}
+                    </span>
+                    <button
+                      type="button"
+                      className="card-delete-btn"
+                      title={locale === "ro" ? "Elimină ecranul" : "Delete display"}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void deleteDevice(device.id);
+                      }}
+                    >
+                      🗑
+                    </button>
+                  </div>
                 </div>
                 <div className="display-card-meta">
                   <span>
@@ -688,7 +1137,7 @@ function DisplaysView({ locale }: { locale: Locale }) {
                   🔄 {locale === "ro" ? "Reîmprospătează" : "Refresh"}
                 </button>
                 <a
-                  href="http://localhost:8765/"
+                  href={`/preview?d=${encodeURIComponent(selectedDevice.id)}`}
                   target="_blank"
                   rel="noreferrer"
                   className="live-preview-btn"
@@ -701,15 +1150,15 @@ function DisplaysView({ locale }: { locale: Locale }) {
             <div className="live-preview-tv-frame">
               <iframe
                 key={previewKey}
-                src="http://localhost:8765/"
+                src={`/preview?d=${encodeURIComponent(selectedDevice.id)}&embed=1`}
                 className="live-preview-iframe"
                 title="TV Display Preview"
               />
             </div>
             <div className="live-preview-footer">
-              <span>● {selectedDevice.name} (127.0.0.1:8765)</span>
+              <span>● {selectedDevice.name} ({selectedDevice.online ? "Online" : "Offline"})</span>
               <span style={{ color: "#94a3b8" }}>
-                {locale === "ro" ? "Transmisie activă prin agentul TV local" : "Live stream via local display agent"}
+                {locale === "ro" ? "Transmisie Cloud (fără dependență de rețeaua locală)" : "Cloud Stream (No local agent dependency)"}
               </span>
             </div>
           </div>
@@ -992,19 +1441,68 @@ function DisplaysView({ locale }: { locale: Locale }) {
                     <option value="L">{locale === "ro" ? "Mare (L - 48%)" : "Large (L - 48%)"}</option>
                   </select>
                 </label>
+                <div style={{ gridColumn: "1 / -1", marginTop: "4px" }}>
+                  <span style={{ fontSize: "13px", fontWeight: 700, color: "#475569", display: "block", marginBottom: "6px" }}>
+                    {locale === "ro" ? "Temă culori & aspect ecran" : "Screen color theme & presets"}
+                  </span>
+                  <div className="theme-presets-grid">
+                    {[
+                      { id: "espresso", name: "Gourmet Espresso", bg: "#1c130e", accent: "#f59e0b" },
+                      { id: "caramel", name: "Caramel Cald", bg: "#261810", accent: "#d97706" },
+                      { id: "terracotta", name: "Teracotă Artizanală", bg: "#2c1810", accent: "#ea580c" },
+                      { id: "slate", name: "Dark Slate", bg: "#0f172a", accent: "#10b981" },
+                      { id: "midnight", name: "Midnight Gold", bg: "#0b1329", accent: "#facc15" },
+                    ].map((preset) => {
+                      const active = (config.offerBackground === preset.bg && config.accentColor === preset.accent);
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          className={`theme-preset-btn ${active ? "active" : ""}`}
+                          onClick={() => {
+                            setSaved(false);
+                            setConfig((c) => ({ ...c, offerBackground: preset.bg, accentColor: preset.accent }));
+                          }}
+                        >
+                          <div className="theme-preset-preview" style={{ background: preset.bg, color: preset.accent, border: `1px solid ${preset.accent}40` }}>
+                            Hei! Aa
+                          </div>
+                          <span className="theme-preset-name">{preset.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
                 <label>
                   {locale === "ro" ? "Culoare fundal ecran ofertă" : "Offer background color"}
                   <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                     <input
                       type="color"
-                      value={String(config.offerBackground || "#111827")}
+                      value={String(config.offerBackground || "#1c130e")}
                       onChange={(event) => update("offerBackground", event.target.value)}
                       style={{ width: "48px", height: "38px", padding: "2px", cursor: "pointer" }}
                     />
                     <input
                       type="text"
-                      value={String(config.offerBackground || "#111827")}
+                      value={String(config.offerBackground || "#1c130e")}
                       onChange={(event) => update("offerBackground", event.target.value)}
+                      style={{ width: "110px", fontFamily: "monospace" }}
+                    />
+                  </div>
+                </label>
+                <label>
+                  {locale === "ro" ? "Culoare accent (Hei! & QR)" : "Accent color (Greeting & highlights)"}
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <input
+                      type="color"
+                      value={String(config.accentColor || "#f59e0b")}
+                      onChange={(event) => update("accentColor", event.target.value)}
+                      style={{ width: "48px", height: "38px", padding: "2px", cursor: "pointer" }}
+                    />
+                    <input
+                      type="text"
+                      value={String(config.accentColor || "#f59e0b")}
+                      onChange={(event) => update("accentColor", event.target.value)}
                       style={{ width: "110px", fontFamily: "monospace" }}
                     />
                   </div>
@@ -1012,7 +1510,7 @@ function DisplaysView({ locale }: { locale: Locale }) {
                 <div
                   className="offer-preview"
                   style={{
-                    background: String(config.offerBackground || "#111827"),
+                    background: String(config.offerBackground || "#1c130e"),
                     gridColumn: "1 / -1",
                     padding: "20px",
                     borderRadius: "10px",
@@ -1020,13 +1518,17 @@ function DisplaysView({ locale }: { locale: Locale }) {
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
+                    border: `1px solid ${String(config.accentColor || "#f59e0b")}40`,
                   }}
                 >
                   <div>
-                    <strong style={{ display: "block", fontSize: "20px", marginBottom: "4px" }}>
-                      {String(config.headline || "Ofertă specială")}
+                    <span style={{ color: String(config.accentColor || "#f59e0b"), fontWeight: 800, fontSize: "14px", display: "block", marginBottom: "4px" }}>
+                      {String(config.greetingText || "Hei!")}
+                    </span>
+                    <strong style={{ display: "block", fontSize: "20px", marginBottom: "4px", color: "#fffbeb" }}>
+                      {String(config.headline || "20% reducere")}
                     </strong>
-                    <span style={{ fontSize: "14px", opacity: 0.9 }}>
+                    <span style={{ fontSize: "14px", color: "#e6d5c3" }}>
                       {String(config.subtext || "Completează formularul pentru a revendica oferta")}
                     </span>
                   </div>
@@ -1038,6 +1540,7 @@ function DisplaysView({ locale }: { locale: Locale }) {
                       borderRadius: "6px",
                       fontWeight: "bold",
                       fontSize: "12px",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
                     }}
                   >
                     QR [{String(config.qrSize || "M")}]
@@ -1085,6 +1588,20 @@ function DisplaysView({ locale }: { locale: Locale }) {
                 </button>
               </div>
             )}
+
+            <div className="danger-zone-card">
+              <div>
+                <h4>{locale === "ro" ? "Zonă de pericol: Ștergere ecran" : "Danger Zone: Delete display"}</h4>
+                <p>{locale === "ro" ? "Elimină complet acest ecran și setările asociate." : "Permanently remove this display and all paired configurations."}</p>
+              </div>
+              <button
+                type="button"
+                className="button danger"
+                onClick={() => void deleteDevice(selectedDevice.id)}
+              >
+                {locale === "ro" ? "Elimină ecranul definitiv" : "Delete display"}
+              </button>
+            </div>
           </section>
         </div>
       )}
@@ -1367,6 +1884,7 @@ function App() {
   useEffect(() => { document.documentElement.lang = locale; document.title = t("appName"); }, [locale]);
   if (route === "offer") return <OfferPage locale={locale} />;
   if (route === "privacy") return <PublicPage locale={locale} title="privacyTitle" body="privacyBody" />;
+  if (route === "preview") return <RemoteLivePreviewPage locale={locale} />;
   return <Dashboard locale={locale} setLocale={setLocale} route={route} t={t} />;
 }
 
@@ -1385,7 +1903,7 @@ function Dashboard({ locale, setLocale, route, t }: { locale: Locale; setLocale:
     }
     return () => window.removeEventListener("adsense:unauthorized", handleUnauthorized);
   }, [loggedIn]);
-  const nav = useMemo(() => Object.entries(routeKeys) as [Exclude<Route, "offer" | "privacy">, TranslationKey][], []);
+  const nav = useMemo(() => Object.entries(routeKeys) as [Exclude<Route, "offer" | "privacy" | "preview">, TranslationKey][], []);
   if (!loggedIn) return <LoginShell locale={locale} />;
   return (
     <div className="app-shell">

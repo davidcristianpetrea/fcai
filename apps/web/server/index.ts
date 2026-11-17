@@ -36,11 +36,12 @@ const defaultDeviceConfig = {
   transition: "auto",
   transitionSpeed: 1,
   offerLink: "https://adsense.davidpetrea.ro/offer",
-  headline: "",
-  subtext: "",
+  headline: "20% reducere",
+  subtext: "Completează formularul pentru a revendica oferta",
   caption: "",
   qrSize: 220,
-  offerBackground: "#111827",
+  offerBackground: "#1c130e",
+  accentColor: "#f59e0b",
   playlist: [],
 };
 function normalizeConfig(value: unknown): Record<string, unknown> {
@@ -191,6 +192,20 @@ app.get("/api/public/offer", (c) => {
       subtext: "Completează formularul pentru a revendica oferta",
     });
   }
+});
+app.get("/api/public/display/:id", (c) => {
+  const row = db.prepare("SELECT id, name, config_json, playlist_json, last_seen_at FROM devices WHERE id = ?").get(c.req.param("id")) as { id: string; name: string; config_json: string; playlist_json?: string; last_seen_at?: string } | undefined;
+  if (!row) return c.json({ error: "not_found" }, 404);
+  const config = normalizeConfig(JSON.parse(row.config_json));
+  if (row.playlist_json) {
+    try { config.playlist = JSON.parse(row.playlist_json); } catch {}
+  }
+  return c.json({
+    id: row.id,
+    name: row.name,
+    online: Boolean(row.last_seen_at && Date.now() - Date.parse(row.last_seen_at) < 30_000),
+    config,
+  });
 });
 app.get("/api/leads", (c) => {
   if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
@@ -360,9 +375,22 @@ app.get("/api/device/media/:id", async (c) => {
     return c.json({ error: "not_found" }, 404);
   }
 });
+app.get("/api/public/media/:id", async (c) => {
+  const row = db.prepare("SELECT filename, content_type FROM assets WHERE id = ? AND state = 'ready'").get(c.req.param("id")) as { filename: string; content_type: string } | undefined;
+  if (!row) return c.json({ error: "not_found" }, 404);
+  try {
+    const file = await rangeFor(mediaPath(dataDir, c.req.param("id"), "original"), c.req.header("range"));
+    file.headers.set("Content-Type", row.content_type);
+    file.headers.set("Cache-Control", "public, max-age=3600");
+    return new Response(file.stream, { status: file.status, headers: file.headers });
+  } catch (error) {
+    if (error instanceof Error && error.message === "range_not_satisfiable") return c.json({ error: "range_not_satisfiable" }, 416);
+    return c.json({ error: "not_found" }, 404);
+  }
+});
 app.notFound(async (c) => {
   if (c.req.path.startsWith("/api/") || c.req.path.startsWith("/ws/")) return c.json({ error: "not_found" }, 404);
-  const requested = c.req.path === "/" || c.req.path.startsWith("/offer") || c.req.path.startsWith("/privacy") ? "/index.html" : c.req.path;
+  const requested = c.req.path === "/" || c.req.path.startsWith("/offer") || c.req.path.startsWith("/preview") || c.req.path.startsWith("/privacy") ? "/index.html" : c.req.path;
   const file = path.resolve(publicRoot, `.${requested}`);
   if (!file.startsWith(publicRoot)) return c.text("Not found", 404);
   try {

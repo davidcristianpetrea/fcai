@@ -508,8 +508,23 @@ export class App {
     const tracks = this.blender.getActiveTracks();
     if (tracks.length === 0) return;
 
-    // Lock to people side whenever offer is active, allowing full-screen tracking only in standby
-    const isOfferActive = phase === "TRIGGERING" || phase === "OFFER" || phase === "EXITING";
+    // Smooth clamping transition progress so faces gently glide across into the people half rather than teleporting
+    let clampProgress = 0.0;
+    const pace = Math.max(0.6, Math.min(2.0, Number(config.offerAnimationPace || 1.0)));
+    const stateElapsed = nowMs - this.stateMachine.stateStartedMs;
+    const slideDuration = 1100 * pace;
+    const exitDuration = 900 * pace;
+
+    if (phase === "TRIGGERING") {
+      clampProgress = easeInOutCubic(Math.min(1.0, stateElapsed / slideDuration));
+    } else if (phase === "OFFER") {
+      clampProgress = 1.0;
+    } else if (phase === "EXITING") {
+      const exitP = Math.min(1.0, stateElapsed / exitDuration);
+      clampProgress = Math.max(0.0, 1.0 - easeInOutCubic(exitP));
+    } else {
+      clampProgress = 0.0;
+    }
 
     const items = tracks.map((t) => ({
       id: t.id,
@@ -518,7 +533,7 @@ export class App {
       radius: t.currentSize / 2,
     }));
 
-    const separated = separateFaces(items, this.lockedPeopleSide, w, h, isOfferActive);
+    const separated = separateFaces(items, this.lockedPeopleSide, w, h, clampProgress);
     for (let i = 0; i < tracks.length; i++) {
       tracks[i].currentX = separated[i].cx;
       tracks[i].currentY = separated[i].cy;
@@ -529,8 +544,14 @@ export class App {
 
   private renderTemplate(phase: string, nowMs: number): void {
     const config = this.state.sync?.device_config || {};
-    const colors = getContrastColors(config.offerBackground);
-    const bgColor = config.offerBackground || "#0f172a";
+    // Appetizing warm theme: rich dark espresso background with warm amber/gold accent
+    const defaultBg = "#1c130e";
+    const defaultAccent = "#f59e0b";
+    const bgColor = config.offerBackground && config.offerBackground !== "#111827" && config.offerBackground !== "#0f172a"
+      ? config.offerBackground
+      : defaultBg;
+    const accentColor = config.accentColor || defaultAccent;
+    const colors = getContrastColors(bgColor);
 
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -637,11 +658,11 @@ export class App {
         ? `translate3d(${slidePercent.toFixed(2)}%, 0, 0)`
         : `translate3d(-${slidePercent.toFixed(2)}%, 0, 0)`;
 
-    // Smooth blur & color gradient blending the media half into the offer side
+    // Smooth blur & warm color gradient blending the media half into the offer side
     const gradientBg =
       contentSide === "right"
-        ? `linear-gradient(to right, transparent 0%, rgba(15, 23, 42, 0.40) 10%, rgba(15, 23, 42, 0.85) 24%, ${bgColor} 42%, ${bgColor} 100%)`
-        : `linear-gradient(to left, transparent 0%, rgba(15, 23, 42, 0.40) 10%, rgba(15, 23, 42, 0.85) 24%, ${bgColor} 42%, ${bgColor} 100%)`;
+        ? `linear-gradient(to right, transparent 0%, rgba(28, 19, 14, 0.40) 10%, rgba(28, 19, 14, 0.88) 26%, ${bgColor} 44%, ${bgColor} 100%)`
+        : `linear-gradient(to left, transparent 0%, rgba(28, 19, 14, 0.40) 10%, rgba(28, 19, 14, 0.88) 26%, ${bgColor} 44%, ${bgColor} 100%)`;
 
     const greetingText = config.greetingText || "Hei!";
     const headline = config.headline || "20% reducere";
@@ -681,19 +702,22 @@ export class App {
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                padding: 4vw;
+                margin: 0;
+                padding: 0;
                 opacity: ${greetingOpacity.toFixed(2)};
                 transform: translate3d(0, ${greetingY.toFixed(1)}px, 0) scale(${greetingScale.toFixed(3)});
                 will-change: transform, opacity;
                 pointer-events: none;
+                z-index: 10;
               ">
                 <span class="greeting-text" style="
-                  font-size: clamp(4.5rem, 9.5vw, 8rem);
+                  font-size: clamp(5.8rem, 13vw, 11rem);
                   font-weight: 900;
                   letter-spacing: -0.04em;
-                  color: #38bdf8;
-                  text-shadow: 0 10px 40px rgba(56, 189, 248, 0.45);
+                  color: ${accentColor};
+                  text-shadow: 0 16px 60px rgba(245, 158, 11, 0.40), 0 4px 16px rgba(0,0,0,0.4);
                   line-height: 1;
+                  text-align: center;
                 ">${greetingText}</span>
               </div>`
             : ""
@@ -714,21 +738,22 @@ export class App {
             line-height: 1.08;
             letter-spacing: -0.03em;
             margin: 0;
-            color: ${colors.text};
+            color: #fffbeb;
+            text-shadow: 0 4px 20px rgba(0,0,0,0.5);
           ">${headline}</h1>
           <p class="offer-subtext" style="
             font-size: clamp(1.4rem, 2.6vw, 2.25rem);
             line-height: 1.35;
             margin: 0;
             font-weight: 500;
-            color: ${colors.muted};
+            color: #e6d5c3;
           ">${subtext}</p>
           <div class="qr-wrapper" style="margin-top: 0.5rem;">
             <div class="qr-card" style="
               background: #ffffff;
               padding: clamp(18px, 2.5vw, 30px);
               border-radius: clamp(20px, 3vw, 32px);
-              box-shadow: 0 24px 50px rgba(0, 0, 0, 0.5);
+              box-shadow: 0 24px 60px rgba(0,0,0,0.55), 0 0 0 1px rgba(245, 158, 11, 0.25);
               display: inline-flex;
             ">
               ${this.qrDataUrl ? `<img src="${this.qrDataUrl}" alt="QR" class="qr-image" style="width: 100%; height: auto; aspect-ratio: 1;">` : ""}

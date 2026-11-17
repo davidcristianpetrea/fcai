@@ -81,10 +81,16 @@ export function separateFaces(
   peopleSide: PeopleSide,
   screenWidth: number,
   screenHeight: number,
-  isOfferActive = false,
+  isOfferActive: boolean | number = false,
   iterations = 4,
 ): { id: number; cx: number; cy: number; radius: number }[] {
   const result = faces.map((f) => ({ ...f }));
+  const progress =
+    typeof isOfferActive === "number"
+      ? Math.max(0.0, Math.min(1.0, isOfferActive))
+      : isOfferActive
+        ? 1.0
+        : 0.0;
 
   for (let it = 0; it < iterations; it++) {
     for (let i = 0; i < result.length; i++) {
@@ -107,26 +113,35 @@ export function separateFaces(
       }
     }
 
-    // Re-clamp all to boundary
+    // Re-clamp all to boundary, smoothly interpolating so faces glide into side rather than teleporting
     for (const f of result) {
-      const clamped = isOfferActive
-        ? clampFaceToPeopleSide(
-            f.cx,
-            f.cy,
-            f.radius,
-            peopleSide,
-            screenWidth,
-            screenHeight,
-          )
-        : clampFaceToScreen(
-            f.cx,
-            f.cy,
-            f.radius,
-            screenWidth,
-            screenHeight,
-          );
-      f.cx = clamped.cx;
-      f.cy = clamped.cy;
+      const unclamped = clampFaceToScreen(f.cx, f.cy, f.radius, screenWidth, screenHeight);
+      if (progress <= 0.0) {
+        f.cx = unclamped.cx;
+        f.cy = unclamped.cy;
+      } else if (progress >= 1.0) {
+        const clamped = clampFaceToPeopleSide(
+          f.cx,
+          f.cy,
+          f.radius,
+          peopleSide,
+          screenWidth,
+          screenHeight,
+        );
+        f.cx = clamped.cx;
+        f.cy = clamped.cy;
+      } else {
+        const clamped = clampFaceToPeopleSide(
+          f.cx,
+          f.cy,
+          f.radius,
+          peopleSide,
+          screenWidth,
+          screenHeight,
+        );
+        f.cx = (1.0 - progress) * unclamped.cx + progress * clamped.cx;
+        f.cy = (1.0 - progress) * unclamped.cy + progress * clamped.cy;
+      }
     }
   }
 
