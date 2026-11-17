@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from typing import Any
+from pathlib import Path
 
 from .boundary import LocalBoundary
 from .cloud import HttpCloudLink
@@ -47,15 +48,20 @@ class AgentRuntime:
         elif self.config.cloud_base_url and not self.store.read().get("device_token"):
             pairing = self.store.read().get("pairing")
             if not pairing:
-                pairing = await asyncio.to_thread(self.cloud.pair_request)
+                try:
+                    pairing = await asyncio.to_thread(self.cloud.pair_request)
+                except Exception:
+                    pairing = {"deviceId": self.config.device_id, "code": "------", "expiresAt": 0, "offline": True}
                 self.store.merge({"pairing": pairing})
-            asyncio.create_task(self._pairing_loop())
+            if not pairing.get("offline"):
+                asyncio.create_task(self._pairing_loop())
         boundary = LocalBoundary(
             self.config.host,
             self.config.http_port,
             self.config.websocket_port,
             self.state,
             self.handle_message,
+            renderer_dir=Path(__file__).resolve().parents[2] / "renderer" / "public",
         )
         self.http_server = boundary.start_http()
         self.websocket_server = await boundary.start_websocket()
