@@ -10,6 +10,7 @@ from adsense_vision.attention import (
     PITCH_MIN,
     PITCH_MAX,
 )
+from adsense_vision.crop import extract_face_crop
 from adsense_vision.detector import Detection
 from adsense_vision.models import Track, VisionConfig
 from adsense_vision.service import VisionService
@@ -70,6 +71,22 @@ class HeadPoseLookingTests(unittest.TestCase):
         _, pitch_ratio, _, _, looking = compute_head_pose(keypoints)
         self.assertLess(pitch_ratio, PITCH_MIN)
         self.assertFalse(looking)
+
+
+class CropTests(unittest.TestCase):
+    def test_extract_face_crop_returns_data_uri(self):
+        frame = np.full((360, 640, 3), 128, dtype=np.uint8)
+        # Face box at center
+        crop_data = extract_face_crop(frame, (0.4, 0.3, 0.2, 0.3))
+        self.assertIsNotNone(crop_data)
+        self.assertTrue(crop_data.startswith("data:image/jpeg;base64,"))
+
+    def test_extract_face_crop_boundary_handling(self):
+        frame = np.full((360, 640, 3), 128, dtype=np.uint8)
+        # Face box near top-left corner
+        crop_data = extract_face_crop(frame, (0.01, 0.01, 0.15, 0.15))
+        self.assertIsNotNone(crop_data)
+        self.assertTrue(crop_data.startswith("data:image/jpeg;base64,"))
 
 
 class TrackingTests(unittest.TestCase):
