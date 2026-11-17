@@ -145,9 +145,40 @@ app.delete("/api/assets/:id", (c) => {
   db.prepare("UPDATE assets SET state = 'deleted', deleted_at = ? WHERE id = ?").run(new Date().toISOString(), c.req.param("id"));
   return c.json({ ok: true });
 });
+app.get("/api/public/offer", (c) => {
+  const deviceId = c.req.query("d");
+  if (!deviceId) {
+    return c.json({
+      headline: "20% reducere",
+      subtext: "Completează formularul pentru a revendica oferta",
+    });
+  }
+  const row = db.prepare("SELECT name, config_json FROM devices WHERE id = ?").get(deviceId) as { name: string; config_json: string } | undefined;
+  if (!row) {
+    return c.json({
+      headline: "20% reducere",
+      subtext: "Completează formularul pentru a revendica oferta",
+    });
+  }
+  try {
+    const config = JSON.parse(row.config_json);
+    return c.json({
+      displayName: row.name,
+      headline: config.headline || "20% reducere",
+      subtext: config.subtext || "Completează formularul pentru a revendica oferta",
+      caption: config.caption || "",
+    });
+  } catch {
+    return c.json({
+      displayName: row.name,
+      headline: "20% reducere",
+      subtext: "Completează formularul pentru a revendica oferta",
+    });
+  }
+});
 app.get("/api/leads", (c) => {
   if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
-  return c.json({ leads: db.prepare("SELECT id, name, email, consent, created_at FROM leads ORDER BY created_at DESC").all() });
+  return c.json({ leads: db.prepare("SELECT l.id, l.name, l.email, l.consent, l.created_at, l.device_id, d.name AS device_name FROM leads l LEFT JOIN devices d ON d.id = l.device_id ORDER BY l.created_at DESC").all() });
 });
 app.delete("/api/leads/:id", (c) => {
   if (admin(c.req.raw)?.kind !== "admin") return c.json({ error: "unauthorized" }, 401);
@@ -155,10 +186,16 @@ app.delete("/api/leads/:id", (c) => {
   return c.json({ ok: true });
 });
 app.post("/api/leads", async (c) => {
-  const body = await c.req.json<{ name?: string; email?: string; consent?: boolean; website?: string }>();
+  const body = await c.req.json<{ name?: string; email?: string; consent?: boolean; website?: string; deviceId?: string }>();
   if (body.website || !body.name || !body.email || !body.consent) return c.json({ error: "invalid_lead" }, 400);
   if (!createRateLimit(db, `lead:${ip(c.req.raw)}`, 5, 3_600_000)) return c.json({ error: "rate_limited" }, 429);
-  db.prepare("INSERT INTO leads(id, name, email, consent, created_at) VALUES (?, ?, ?, 1, ?)").run(crypto.randomUUID(), body.name.trim(), body.email.trim(), new Date().toISOString());
+  db.prepare("INSERT INTO leads(id, name, email, consent, created_at, device_id) VALUES (?, ?, ?, 1, ?, ?)").run(
+    crypto.randomUUID(),
+    body.name.trim(),
+    body.email.trim(),
+    new Date().toISOString(),
+    body.deviceId ? body.deviceId.trim() : null
+  );
   return c.json({ ok: true });
 });
 app.post("/api/assets", async (c) => {

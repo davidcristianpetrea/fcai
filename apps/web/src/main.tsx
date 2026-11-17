@@ -64,8 +64,87 @@ function OfferPage({ locale }: { locale: Locale }) {
   const t = (key: TranslationKey) => translate(locale, key);
   const [sent, setSent] = useState(false);
   const [notice, setNotice] = useState("");
-  if (sent) return <main className="public-shell"><section className="public-card"><p className="eyebrow">{t("publicPage")}</p><h1>{t("offerSuccess")}</h1></section></main>;
-  return <main className="public-shell"><section className="public-card"><p className="eyebrow">{t("publicPage")}</p><h1>{t("offerTitle")}</h1><p className="lead">{t("offerCta")}</p><form className="offer-form" onSubmit={async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const response = await fetch("/api/leads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: form.get("name"), email: form.get("email"), consent: form.get("consent") === "on", website: form.get("website") }) }); if (response.ok) setSent(true); else setNotice(t("offerRequired")); }}><label>{t("offerName")}<input name="name" required /></label><label>{t("offerEmail")}<input name="email" type="email" required /></label><label className="honeypot" aria-hidden="true">Website<input name="website" tabIndex={-1} autoComplete="off" /></label><label className="consent"><input name="consent" type="checkbox" required />{t("offerConsent")}</label><button className="button primary" type="submit">{t("offerSubmit")}</button>{notice && <p className="notice">{notice}</p>}</form></section></main>;
+  const [offerInfo, setOfferInfo] = useState<{ headline?: string; subtext?: string; displayName?: string } | null>(null);
+  const deviceId = useMemo(() => new URLSearchParams(window.location.search).get("d") || "", []);
+
+  useEffect(() => {
+    fetch(`/api/public/offer${deviceId ? `?d=${encodeURIComponent(deviceId)}` : ""}`)
+      .then((r) => r.json())
+      .then((data) => setOfferInfo(data))
+      .catch(() => {});
+  }, [deviceId]);
+
+  if (sent) {
+    return (
+      <main className="public-shell">
+        <section className="public-card text-center">
+          <div className="success-icon" style={{ fontSize: "3rem", marginBottom: "1rem" }}>✓</div>
+          <p className="eyebrow">{locale === "ro" ? "Confirmare" : "Confirmation"}</p>
+          <h1>{locale === "ro" ? "Mulțumim! Oferta ta a fost înregistrată." : "Thank you! Your offer has been claimed."}</h1>
+          <p className="lead" style={{ marginTop: "1rem" }}>
+            {locale === "ro" ? "Vei primi detaliile pe email în curând." : "You will receive the details by email shortly."}
+          </p>
+        </section>
+      </main>
+    );
+  }
+
+  const headline = offerInfo?.headline || t("offerTitle");
+  const subtext = offerInfo?.subtext || t("offerCta");
+
+  return (
+    <main className="public-shell">
+      <section className="public-card">
+        <p className="eyebrow">{offerInfo?.displayName || t("publicPage")}</p>
+        <h1>{headline}</h1>
+        <p className="lead">{subtext}</p>
+        <form
+          className="offer-form"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            const form = new FormData(event.currentTarget);
+            const response = await fetch("/api/leads", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                name: form.get("name"),
+                email: form.get("email"),
+                consent: form.get("consent") === "on",
+                website: form.get("website"),
+                deviceId: deviceId || undefined,
+              }),
+            });
+            if (response.ok) {
+              setSent(true);
+            } else {
+              setNotice(t("offerRequired"));
+            }
+          }}
+        >
+          <label>
+            {t("offerName")}
+            <input name="name" required placeholder={locale === "ro" ? "Ion Popescu" : "John Doe"} />
+          </label>
+          <label>
+            {t("offerEmail")}
+            <input name="email" type="email" required placeholder="exemplu@email.com" />
+          </label>
+          <label className="honeypot" aria-hidden="true" style={{ display: "none" }}>
+            Website
+            <input name="website" tabIndex={-1} autoComplete="off" />
+          </label>
+          <label className="consent" style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.5rem" }}>
+            <input name="consent" type="checkbox" required />
+            <span>{t("offerConsent")}</span>
+          </label>
+          <button className="button primary" type="submit" style={{ marginTop: "1rem" }}>
+            {t("offerSubmit")}
+          </button>
+          {notice && <p className="notice">{notice}</p>}
+        </form>
+      </section>
+    </main>
+  );
 }
 
 function LoginShell({ locale }: { locale: Locale }) {

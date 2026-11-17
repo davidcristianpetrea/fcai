@@ -8,8 +8,13 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@types/qrcode": "^1.5.6",
+    "jsqr": "^1.4.0",
     "typescript": "5.7.2",
     "vite": "6.0.5",
     "vitest": "2.1.8"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
   }
 }
