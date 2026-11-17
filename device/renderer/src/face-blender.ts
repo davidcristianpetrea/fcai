@@ -60,16 +60,16 @@ export class FaceBlender {
     for (const face of sorted) {
       presentIds.add(face.id);
       const rawCx = (face.x + face.w / 2.0) * width;
-      const rawCy = (face.y + face.h / 2.0 + 0.08 * face.h) * height;
+      const rawCy = (face.y + face.h / 2.0 - 0.04 * face.h) * height;
       const rawSize = Math.max(minSize, Math.min(maxSize, 1.7 * face.h * height));
 
       let track = this.tracks.get(face.id);
       if (!track) {
         track = {
           id: face.id,
-          filterX: new OneEuroFilter(1.0, 0.007),
-          filterY: new OneEuroFilter(1.0, 0.007),
-          filterSize: new OneEuroFilter(1.0, 0.007),
+          filterX: new OneEuroFilter(0.3, 0.008),
+          filterY: new OneEuroFilter(0.3, 0.008),
+          filterSize: new OneEuroFilter(0.3, 0.008),
           currentX: rawCx,
           currentY: rawCy,
           currentSize: rawSize,

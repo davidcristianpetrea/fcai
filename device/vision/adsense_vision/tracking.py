@@ -87,11 +87,19 @@ class IoUTracker:
                 continue
             unmatched.remove(best_index)
             box, score, yaw, pitch, yaw_ratio, pitch_ratio, looking = parsed[best_index]
+            bx, by, bw, bh = box
+            obx, oby, obw, obh = track.box
+            smoothed_box = (
+                0.7 * bx + 0.3 * obx,
+                0.7 * by + 0.3 * oby,
+                0.7 * bw + 0.3 * obw,
+                0.7 * bh + 0.3 * obh,
+            )
             smoothed_yaw_ratio = 0.6 * yaw_ratio + 0.4 * track.yaw_ratio if track.yaw_ratio != 0.0 else yaw_ratio
             smoothed_pitch_ratio = 0.6 * pitch_ratio + 0.4 * track.pitch_ratio if track.pitch_ratio != 0.55 else pitch_ratio
             updated.append(replace(
                 track,
-                box=box,
+                box=smoothed_box,
                 score=score,
                 last_seen_ms=timestamp_ms,
                 yaw=yaw,

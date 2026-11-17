@@ -17,7 +17,7 @@ def extract_face_crop(
     target_size: int = 320,
     jpeg_quality: int = 80,
     crop_scale: float = 1.7,
-    y_offset_ratio: float = 0.08,
+    y_offset_ratio: float = -0.04,
 ) -> str | None:
     """Extract a square crop around face (1.7x face height, centered naturally on face)
     and return as data:image/jpeg;base64 string.

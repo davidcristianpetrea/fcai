@@ -218,39 +218,7 @@ function MediaUploader({ locale }: { locale: Locale }) {
   return <div className="panel media-uploader"><label className="button primary file-picker">{t("chooseFiles")}<input type="file" multiple accept="image/jpeg,image/png,image/webp,image/heic,video/mp4,video/quicktime,video/webm,video/x-matroska,image/gif" onChange={chooseFiles} /></label>{items.map((item) => <div className="upload-row" key={item.name}><div className="upload-heading"><span>{item.name}</span><strong>{item.error ?? (item.done ? t("uploadDone") : `${item.progress}%`)}</strong></div><progress max="100" value={item.progress} /></div>)}<div className="asset-list">{assets.map((asset) => <div className="upload-heading" key={asset.id}><span>{asset.filename}</span><button className="text-button" onClick={() => { void fetch(`/api/assets/${asset.id}`, { method: "DELETE", headers: authHeaders() }).then(refresh); }}>{t("delete")}</button></div>)}</div></div>;
 }
 
-function DisplaysPanel({ locale }: { locale: Locale }) {
-  const t = (key: TranslationKey) => translate(locale, key);
-  const [devices, setDevices] = useState<{ id: string; name: string; online: boolean; last_seen_at?: string }[]>([]);
-  const [code, setCode] = useState("");
-  const [name, setName] = useState("");
-  const [notice, setNotice] = useState("");
-  const refresh = () => { void fetch("/api/devices", { headers: authHeaders() }).then((response) => response.json() as Promise<{ devices: typeof devices }>).then((payload) => setDevices(payload.devices || [])); };
-  useEffect(() => {
-    refresh();
-    const handleChanged = () => refresh();
-    window.addEventListener("adsense:devices-changed", handleChanged);
-    return () => window.removeEventListener("adsense:devices-changed", handleChanged);
-  }, []);
-  const pair = async (event: FormEvent) => {
-    event.preventDefault();
-    const effectiveName = name.trim() || `Ecran ${devices.length + 1}`;
-    const response = await fetch("/api/devices/pair", { method: "POST", headers: { ...authHeaders(), "content-type": "application/json" }, body: JSON.stringify({ code, name: effectiveName }) });
-    if (!response.ok) { setNotice(locale === "ro" ? "Codul nu este valid sau a expirat." : "That code is invalid or expired."); return; }
-    setNotice(locale === "ro" ? "Ecranul a fost adăugat." : "Display added.");
-    setCode(""); setName(""); refresh();
-    window.dispatchEvent(new CustomEvent("adsense:devices-changed"));
-  };
-  const deleteDevice = async (id: string) => {
-    if (!window.confirm("Sigur vrei să elimini acest ecran? Acțiunea nu poate fi anulată.")) return;
-    const response = await fetch(`/api/devices/${id}`, { method: "DELETE", headers: authHeaders() });
-    if (response.ok) {
-      setNotice(locale === "ro" ? "Ecranul a fost eliminat." : "Display removed.");
-      refresh();
-      window.dispatchEvent(new CustomEvent("adsense:devices-changed"));
-    }
-  };
-  return <div className="panel-grid"><section className="panel"><h2>{locale === "ro" ? "Adaugă ecran" : "Add display"}</h2><p>{locale === "ro" ? "Introdu codul afișat pe televizor." : "Enter the code shown on the TV."}</p><form className="offer-form" onSubmit={pair}><label>{locale === "ro" ? "Cod din 6 cifre" : "6-digit code"}<input inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} required /></label><label>{locale === "ro" ? "Numele ecranului" : "Display name"}<input value={name} placeholder={`Ecran ${devices.length + 1}`} onChange={(event) => setName(event.target.value)} /></label><button className="button primary" type="submit">{locale === "ro" ? "Adaugă" : "Add"}</button>{notice && <p className="notice">{notice}</p>}</form></section><section className="panel"><h2>{t("displays")}</h2>{devices.length === 0 ? <p>{t("noActivity")}</p> : devices.map((device) => <div className="upload-heading display-row" key={device.id}><span><strong>{device.name}</strong><small>{device.last_seen_at ? `${locale === "ro" ? "Ultima conectare:" : "Last seen:"} ${new Date(device.last_seen_at).toLocaleString(locale === "ro" ? "ro-RO" : "en-US")}` : (locale === "ro" ? "Nu s-a conectat încă" : "Never connected")}</small></span><div style={{ display: "flex", alignItems: "center", gap: "10px" }}><strong className={device.online ? "online" : "offline"}>{device.online ? "Online" : "Offline"}</strong><button type="button" className="text-button danger" onClick={() => void deleteDevice(device.id)}>{locale === "ro" ? "Elimină ecranul" : "Delete"}</button></div></div>)}</section></div>;
-}
+// DisplaysPanel removed in favor of unified DisplaysView
 
 function LeadsPanel({ locale }: { locale: Locale }) {
   const t = (key: TranslationKey) => translate(locale, key);
@@ -344,12 +312,20 @@ function LeadsPanel({ locale }: { locale: Locale }) {
   );
 }
 
-function ConfigurationPanel({ locale }: { locale: Locale }) {
-  const [devices, setDevices] = useState<{ id: string; name: string; config: Record<string, unknown>; config_version?: number; applied_config_version?: number }[]>([]);
-  const [deviceId, setDeviceId] = useState("");
+function DisplaysView({ locale }: { locale: Locale }) {
+  const [devices, setDevices] = useState<{ id: string; name: string; online: boolean; last_seen_at?: string; config: Record<string, unknown>; config_version?: number; applied_config_version?: number }[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState("");
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [code, setCode] = useState("");
+  const [pairName, setPairName] = useState("");
+  const [pairNotice, setPairNotice] = useState("");
+  const [pairLoading, setPairLoading] = useState(false);
   const [tab, setTab] = useState<"experience" | "standby" | "offer">("experience");
-  const [config, setConfig] = useState<Record<string, unknown>>({
+  const [previewKey, setPreviewKey] = useState(0);
+
+  const defaultConfig: Record<string, unknown> = {
     template: "simple",
+    greetingText: "Hei!",
     liveFaces: true,
     lookTime: 3,
     standbyDuration: 8,
@@ -363,7 +339,9 @@ function ConfigurationPanel({ locale }: { locale: Locale }) {
     qrSize: "M",
     offerBackground: "#111827",
     playlist: [],
-  });
+  };
+
+  const [config, setConfig] = useState<Record<string, unknown>>(defaultConfig);
   const [saved, setSaved] = useState(true);
   const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "syncing" | "synced" | "error">("idle");
   const [toast, setToast] = useState<{ message: string; type: "info" | "syncing" | "success" | "error" } | null>(null);
@@ -391,9 +369,18 @@ function ConfigurationPanel({ locale }: { locale: Locale }) {
       .then((payload) => {
         const list = payload.devices || [];
         setDevices(list);
-        if (!deviceId && list[0]) {
-          setDeviceId(list[0].id);
-          setConfig((cur) => ({ ...cur, ...list[0].config }));
+        if (list.length > 0) {
+          setSelectedDeviceId((currentId) => {
+            const exists = list.some((d) => d.id === currentId);
+            const targetId = exists ? currentId : list[0].id;
+            const targetDevice = list.find((d) => d.id === targetId);
+            if (targetDevice) {
+              setConfig((cur) => ({ ...defaultConfig, ...targetDevice.config, ...(targetId === currentId ? cur : targetDevice.config) }));
+            }
+            return targetId;
+          });
+        } else {
+          setSelectedDeviceId("");
         }
       });
   };
@@ -408,20 +395,71 @@ function ConfigurationPanel({ locale }: { locale: Locale }) {
     return () => window.removeEventListener("adsense:devices-changed", handleChanged);
   }, []);
 
+  const selectDevice = (id: string) => {
+    setSelectedDeviceId(id);
+    const target = devices.find((d) => d.id === id);
+    if (target) {
+      setConfig({ ...defaultConfig, ...target.config });
+      setSaved(true);
+    }
+  };
+
+  const pair = async (event: FormEvent) => {
+    event.preventDefault();
+    setPairLoading(true);
+    setPairNotice("");
+    const effectiveName = pairName.trim() || `Ecran ${devices.length + 1}`;
+    try {
+      const response = await fetch("/api/devices/pair", {
+        method: "POST",
+        headers: { ...authHeaders(), "content-type": "application/json" },
+        body: JSON.stringify({ code, name: effectiveName }),
+      });
+      if (!response.ok) {
+        setPairNotice(locale === "ro" ? "Codul nu este valid sau a expirat." : "That code is invalid or expired.");
+        setPairLoading(false);
+        return;
+      }
+      const data = (await response.json()) as { deviceId?: string };
+      setShowAddModal(false);
+      setCode("");
+      setPairName("");
+      setPairLoading(false);
+      showToast(locale === "ro" ? "Ecranul a fost adăugat cu succes!" : "Display paired successfully!", "success", 4000);
+      refresh();
+      if (data.deviceId) selectDevice(data.deviceId);
+      window.dispatchEvent(new CustomEvent("adsense:devices-changed"));
+    } catch {
+      setPairNotice(locale === "ro" ? "Eroare de conexiune la server." : "Server connection error.");
+      setPairLoading(false);
+    }
+  };
+
+  const deleteDevice = async (id: string) => {
+    if (!id) return;
+    if (!window.confirm(locale === "ro" ? "Sigur vrei să elimini acest ecran? Acțiunea nu poate fi anulată." : "Are you sure you want to delete this display?")) return;
+    const response = await fetch(`/api/devices/${id}`, { method: "DELETE", headers: authHeaders() });
+    if (response.ok) {
+      showToast(locale === "ro" ? "Ecranul a fost eliminat." : "Display removed.", "info", 3000);
+      refresh();
+      window.dispatchEvent(new CustomEvent("adsense:devices-changed"));
+    }
+  };
+
   const update = (key: string, value: unknown) => {
     setSaved(false);
     setConfig((current) => ({ ...current, [key]: value }));
   };
 
   const publish = async () => {
-    if (!deviceId || syncStatus === "saving" || syncStatus === "syncing") return;
+    if (!selectedDeviceId || syncStatus === "saving" || syncStatus === "syncing") return;
     if (pollTimerRef.current) clearInterval(pollTimerRef.current);
 
     setSyncStatus("saving");
     showToast(locale === "ro" ? "Se salvează…" : "Saving…", "info");
 
     try {
-      const response = await fetch(`/api/devices/${deviceId}/config`, {
+      const response = await fetch(`/api/devices/${selectedDeviceId}/config`, {
         method: "POST",
         headers: { ...authHeaders(), "content-type": "application/json" },
         body: JSON.stringify(config),
@@ -441,7 +479,7 @@ function ConfigurationPanel({ locale }: { locale: Locale }) {
       const startAt = Date.now();
       pollTimerRef.current = setInterval(async () => {
         try {
-          const cfgRes = await fetch(`/api/devices/${deviceId}/config`, { headers: authHeaders() });
+          const cfgRes = await fetch(`/api/devices/${selectedDeviceId}/config`, { headers: authHeaders() });
           if (!cfgRes.ok) return;
           const cfgData = (await cfgRes.json()) as { appliedConfigVersion?: number; configVersion?: number };
           if (typeof cfgData.appliedConfigVersion === "number" && cfgData.appliedConfigVersion >= version) {
@@ -470,20 +508,10 @@ function ConfigurationPanel({ locale }: { locale: Locale }) {
     }
   };
 
-  const deleteDevice = async () => {
-    if (!deviceId) return;
-    if (!window.confirm("Sigur vrei să elimini acest ecran? Acțiunea nu poate fi anulată.")) return;
-    const response = await fetch(`/api/devices/${deviceId}`, { method: "DELETE", headers: authHeaders() });
-    if (response.ok) {
-      showToast(locale === "ro" ? "Ecranul a fost eliminat." : "Display removed.", "info", 3000);
-      setDeviceId("");
-      refresh();
-      window.dispatchEvent(new CustomEvent("adsense:devices-changed"));
-    }
-  };
+  const selectedDevice = devices.find((d) => d.id === selectedDeviceId);
 
   return (
-    <section className="panel configuration-panel">
+    <div style={{ display: "grid", gap: "20px" }}>
       {toast && (
         <div className="toast-container">
           <div className={`toast ${toast.type}`}>
@@ -492,186 +520,535 @@ function ConfigurationPanel({ locale }: { locale: Locale }) {
           </div>
         </div>
       )}
-      <div className="panel-heading">
-        <h2>{locale === "ro" ? "Configurarea ecranului" : "Display configuration"}</h2>
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          {syncStatus === "saving" && <span className="status-badge saving"><span className="spinner"></span> {locale === "ro" ? "Se salvează…" : "Saving…"}</span>}
-          {syncStatus === "syncing" && <span className="status-badge syncing"><span className="spinner"></span> {locale === "ro" ? "Se sincronizează…" : "Syncing to display…"}</span>}
-          {syncStatus === "synced" && <span className="status-badge synced">{locale === "ro" ? "Actualizat pe ecran ✓" : "Updated on display ✓"}</span>}
-          {deviceId && (
-            <button type="button" className="text-button danger" onClick={() => void deleteDevice()}>
-              {locale === "ro" ? "Elimină ecranul" : "Delete display"}
-            </button>
-          )}
-        </div>
-      </div>
 
-      <label>
-        {locale === "ro" ? "Ecran selectat" : "Selected display"}
-        <select
-          value={deviceId}
-          onChange={(event) => {
-            const id = event.target.value;
-            setDeviceId(id);
-            const selected = devices.find((device) => device.id === id);
-            if (selected) setConfig({ ...config, ...selected.config });
+      {/* Header with Green + Add Display Button */}
+      <div className="displays-header">
+        <div>
+          <h2 style={{ margin: "0 0 6px", fontSize: "22px" }}>
+            {locale === "ro" ? "Ecrane conectate" : "Connected displays"}
+          </h2>
+          <p className="muted" style={{ margin: 0, fontSize: "14px" }}>
+            {locale === "ro"
+              ? "Selectează un ecran pentru a-l monitoriza în timp real și a-i configura conținutul."
+              : "Select a display to monitor it in real-time and configure its content."}
+          </p>
+        </div>
+        <button
+          className="button success"
+          onClick={() => {
+            setShowAddModal(true);
+            setPairNotice("");
+            setCode("");
+            setPairName("");
           }}
         >
-          {devices.map((device) => (
-            <option value={device.id} key={device.id}>
-              {device.name}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <div className="tabs">
-        <button className={tab === "experience" ? "active" : ""} onClick={() => setTab("experience")}>
-          {locale === "ro" ? "Experiență" : "Experience"}
-        </button>
-        <button className={tab === "standby" ? "active" : ""} onClick={() => setTab("standby")}>
-          Standby
-        </button>
-        <button className={tab === "offer" ? "active" : ""} onClick={() => setTab("offer")}>
-          {locale === "ro" ? "Ofertă & QR" : "Offer & QR"}
+          <span style={{ fontSize: "16px", fontWeight: "bold" }}>+</span>
+          {locale === "ro" ? "Adaugă ecran" : "Add display"}
         </button>
       </div>
 
-      {tab === "experience" && (
-        <div className="form-grid">
-          <label>
-            {locale === "ro" ? "Șablon interactiv" : "Template"}
-            <select value={String(config.template || "simple")} onChange={(event) => update("template", event.target.value)}>
-              <option value="simple">Simple (Soft Reveal)</option>
-              <option value="recruit">Recruit (Iris Blend + Side Locking)</option>
-            </select>
-          </label>
-          <label>
-            {locale === "ro" ? "Timp minim de privire:" : "Looking dwell time:"} {Number(config.lookTime || 3)} s
-            <input type="range" min="1" max="10" step="1" value={Number(config.lookTime || 3)} onChange={(event) => update("lookTime", Number(event.target.value))} />
-          </label>
-          <label className="checkbox">
-            <input type="checkbox" checked={Boolean(config.liveFaces ?? true)} onChange={(event) => update("liveFaces", event.target.checked)} />
-            {locale === "ro" ? "Arată fețele decupate în timp real" : "Show soft blended faces in real time"}
-          </label>
-        </div>
-      )}
-
-      {tab === "standby" && (
-        <div className="form-grid">
-          <label>
-            {locale === "ro" ? "Durată foto/GIF (secunde)" : "Photo/GIF duration (seconds)"}
-            <input type="number" min="1" max="120" value={Number(config.standbyDuration || 8)} onChange={(event) => update("standbyDuration", Number(event.target.value))} />
-          </label>
-          <label>
-            {locale === "ro" ? "Tranziție standby" : "Standby transition"}
-            <select value={String(config.transition || "auto")} onChange={(event) => update("transition", event.target.value)}>
-              <option value="auto">Auto (random fără repetare)</option>
-              <option value="crossfade">Crossfade</option>
-              <option value="zoom dissolve">Zoom dissolve</option>
-              <option value="push">Push</option>
-              <option value="soft wipe">Soft wipe</option>
-              <option value="dip to black">Dip to black</option>
-            </select>
-          </label>
-          <label>
-            {locale === "ro" ? "Viteză tranziție" : "Transition speed"}
-            <select
-              value={typeof config.transitionSpeed === "number" ? (config.transitionSpeed <= 0.6 ? "fast" : config.transitionSpeed >= 1.2 ? "slow" : "normal") : String(config.transitionSpeed || "normal")}
-              onChange={(event) => update("transitionSpeed", event.target.value)}
-            >
-              <option value="fast">{locale === "ro" ? "Rapidă (0.5s)" : "Fast (0.5s)"}</option>
-              <option value="normal">{locale === "ro" ? "Normală (0.9s)" : "Normal (0.9s)"}</option>
-              <option value="slow">{locale === "ro" ? "Lentă (1.4s)" : "Slow (1.4s)"}</option>
-            </select>
-          </label>
-          <label className="checkbox">
-            <input type="checkbox" checked={Boolean(config.standbyEnabled ?? true)} onChange={(event) => update("standbyEnabled", event.target.checked)} />
-            {locale === "ro" ? "Redare standby activată" : "Standby playback enabled"}
-          </label>
-          <div className="playlist-picker" style={{ gridColumn: "1 / -1" }}>
-            <strong>{locale === "ro" ? "Playlist media (bifează fișierele de afișat în standby)" : "Media playlist (check items to show in standby)"}</strong>
-            {assets.length === 0 ? (
-              <p className="muted" style={{ margin: "8px 0" }}>
-                {locale === "ro" ? "Nu ai încărcat niciun fișier media încă." : "No media uploaded yet."}
-              </p>
-            ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "8px", marginTop: "10px" }}>
-                {assets.map((asset) => {
-                  const playlist = Array.isArray(config.playlist) ? (config.playlist as string[]) : [];
-                  const selected = playlist.includes(asset.id);
-                  return (
-                    <label key={asset.id} className="checkbox" style={{ margin: 0, padding: "6px 10px", background: "#f8fafc", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
-                      <input type="checkbox" checked={selected} onChange={() => update("playlist", selected ? playlist.filter((id) => id !== asset.id) : [...playlist, asset.id])} />
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{asset.filename}</span>
-                    </label>
-                  );
-                })}
+      {/* Add Display Modal */}
+      {showAddModal && (
+        <div className="modal-backdrop" onClick={() => setShowAddModal(false)}>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowAddModal(false)} aria-label="Close">
+              ✕
+            </button>
+            <h3 style={{ margin: "0 0 8px", fontSize: "19px" }}>
+              {locale === "ro" ? "Adaugă ecran nou" : "Add new display"}
+            </h3>
+            <p className="muted" style={{ fontSize: "14px", margin: "0 0 20px" }}>
+              {locale === "ro"
+                ? "Introdu codul de 6 cifre afișat pe televizor pentru a asocia dispozitivul."
+                : "Enter the 6-digit code shown on the TV to pair your device."}
+            </p>
+            <form className="offer-form" onSubmit={pair}>
+              <label>
+                {locale === "ro" ? "Cod din 6 cifre de pe TV" : "6-digit code from TV"}
+                <input
+                  inputMode="numeric"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  placeholder="ex: 123456"
+                  value={code}
+                  autoFocus
+                  onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
+                  required
+                />
+              </label>
+              <label>
+                {locale === "ro" ? "Nume ecran (opțional)" : "Display name (optional)"}
+                <input
+                  value={pairName}
+                  placeholder={`Ecran ${devices.length + 1}`}
+                  onChange={(event) => setPairName(event.target.value)}
+                />
+              </label>
+              {pairNotice && <p className="notice">{pairNotice}</p>}
+              <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end", marginTop: "14px" }}>
+                <button type="button" className="button secondary" onClick={() => setShowAddModal(false)}>
+                  {locale === "ro" ? "Anulează" : "Cancel"}
+                </button>
+                <button type="submit" className="button success" disabled={pairLoading || code.length < 6}>
+                  {pairLoading ? (
+                    <span className="spinner"></span>
+                  ) : (
+                    <span>{locale === "ro" ? "Asociază ecranul" : "Pair display"}</span>
+                  )}
+                </button>
               </div>
-            )}
+            </form>
           </div>
         </div>
       )}
 
-      {tab === "offer" && (
-        <div className="form-grid">
-          <label>
-            {locale === "ro" ? "Link QR" : "QR Link"}
-            <input value={String(config.offerLink ?? "")} placeholder="https://adsense.davidpetrea.ro/offer" onChange={(event) => update("offerLink", event.target.value)} />
-          </label>
-          <label>
-            {locale === "ro" ? "Titlu ofertă" : "Offer headline"}
-            <input value={String(config.headline ?? "")} placeholder="20% reducere" onChange={(event) => update("headline", event.target.value)} />
-          </label>
-          <label>
-            {locale === "ro" ? "Subtitlu ofertă" : "Offer subtext"}
-            <input value={String(config.subtext ?? "")} placeholder="Completează formularul pentru a revendica oferta" onChange={(event) => update("subtext", event.target.value)} />
-          </label>
-          <label>
-            {locale === "ro" ? "Text imagine" : "Media caption"}
-            <input value={String(config.caption ?? "")} placeholder="Text peste imaginea ofertei" onChange={(event) => update("caption", event.target.value)} />
-          </label>
-          <label>
-            {locale === "ro" ? "Mărime cod QR" : "QR Size"}
-            <select
-              value={config.qrSize === 160 ? "S" : config.qrSize === 300 ? "L" : typeof config.qrSize === "string" ? config.qrSize : "M"}
-              onChange={(event) => update("qrSize", event.target.value)}
-            >
-              <option value="S">{locale === "ro" ? "Mic (S - 32%)" : "Small (S - 32%)"}</option>
-              <option value="M">{locale === "ro" ? "Mediu (M - 40%)" : "Medium (M - 40%)"}</option>
-              <option value="L">{locale === "ro" ? "Mare (L - 48%)" : "Large (L - 48%)"}</option>
-            </select>
-          </label>
-          <label>
-            {locale === "ro" ? "Culoare fundal ecran ofertă" : "Offer background color"}
-            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-              <input type="color" value={String(config.offerBackground || "#111827")} onChange={(event) => update("offerBackground", event.target.value)} style={{ width: "48px", height: "38px", padding: "2px", cursor: "pointer" }} />
-              <input type="text" value={String(config.offerBackground || "#111827")} onChange={(event) => update("offerBackground", event.target.value)} style={{ width: "110px", fontFamily: "monospace" }} />
-            </div>
-          </label>
-          <div className="offer-preview" style={{ background: String(config.offerBackground || "#111827"), gridColumn: "1 / -1", padding: "20px", borderRadius: "10px", color: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <strong style={{ display: "block", fontSize: "18px" }}>{String(config.headline || "Ofertă specială")}</strong>
-              <span style={{ fontSize: "14px", opacity: 0.85 }}>{String(config.subtext || "Completează formularul pentru a revendica oferta")}</span>
-            </div>
-            <div style={{ background: "#fff", color: "#000", padding: "8px 12px", borderRadius: "6px", fontWeight: "bold", fontSize: "12px" }}>
-              QR [{String(config.qrSize || "M")}]
-            </div>
-          </div>
-        </div>
-      )}
-
-      {(!saved || syncStatus === "saving" || syncStatus === "syncing") && (
-        <div className="sticky-save" style={{ display: "flex", alignItems: "center", gap: "12px", justifyContent: "flex-end" }}>
-          {syncStatus === "saving" && <span className="status-badge saving"><span className="spinner"></span> {locale === "ro" ? "Se salvează…" : "Saving…"}</span>}
-          {syncStatus === "syncing" && <span className="status-badge syncing"><span className="spinner"></span> {locale === "ro" ? "Se sincronizează…" : "Syncing to display…"}</span>}
-          {syncStatus === "synced" && <span className="status-badge synced">{locale === "ro" ? "Actualizat pe ecran ✓" : "Updated on display ✓"}</span>}
-          <button className="button primary" disabled={syncStatus === "saving" || syncStatus === "syncing"} onClick={() => void publish()}>
-            {syncStatus === "saving" ? (locale === "ro" ? "Se salvează…" : "Saving…") : (locale === "ro" ? "Salvează și publică" : "Save and publish")}
+      {/* Displays Cards List */}
+      {devices.length === 0 ? (
+        <div className="panel" style={{ textAlign: "center", padding: "48px 20px" }}>
+          <div style={{ fontSize: "3.5rem", marginBottom: "12px" }}>📺</div>
+          <h3 style={{ margin: "0 0 8px" }}>{locale === "ro" ? "Niciun ecran conectat" : "No displays connected yet"}</h3>
+          <p className="muted" style={{ maxWidth: "460px", margin: "0 auto 20px", fontSize: "14px" }}>
+            {locale === "ro"
+              ? "Pornește Raspberry Pi conectat la TV și introdu codul din 6 cifre pentru a-l asocia cu această platformă."
+              : "Boot the Raspberry Pi connected to your TV and enter the 6-digit code to pair it."}
+          </p>
+          <button className="button success" onClick={() => setShowAddModal(true)}>
+            + {locale === "ro" ? "Adaugă primul ecran" : "Add first display"}
           </button>
         </div>
+      ) : (
+        <div className="display-cards-grid">
+          {devices.map((device) => {
+            const isSelected = device.id === selectedDeviceId;
+            return (
+              <div
+                key={device.id}
+                className={`display-card ${isSelected ? "selected" : ""}`}
+                onClick={() => selectDevice(device.id)}
+                role="button"
+                tabIndex={0}
+              >
+                <div className="display-card-top">
+                  <div className="display-icon-name">
+                    <span className="display-icon">📺</span>
+                    <span className="display-title">{device.name}</span>
+                  </div>
+                  <span className={`status-pill ${device.online ? "online" : "offline"}`}>
+                    <span className="status-dot-pulse"></span>
+                    {device.online ? "Online" : "Offline"}
+                  </span>
+                </div>
+                <div className="display-card-meta">
+                  <span>
+                    {device.last_seen_at
+                      ? `${locale === "ro" ? "Conectat:" : "Seen:"} ${new Date(device.last_seen_at).toLocaleTimeString(locale === "ro" ? "ro-RO" : "en-US", { hour: "2-digit", minute: "2-digit" })}`
+                      : (locale === "ro" ? "Nu s-a conectat" : "Never")}
+                  </span>
+                  <span style={{ fontWeight: 600, color: isSelected ? "#146b55" : "#64748b" }}>
+                    {isSelected ? (locale === "ro" ? "Selectat ✓" : "Selected ✓") : (locale === "ro" ? "Apasă pt. configurare" : "Click to edit")}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
-    </section>
+
+      {/* Selected Display Workspace: Live TV Preview & Configuration Panel */}
+      {selectedDevice && (
+        <div className="display-workspace">
+          {/* Left: Live TV Preview */}
+          <div className="live-preview-card">
+            <div className="live-preview-header">
+              <h3 className="live-preview-title">
+                <span>📺 {locale === "ro" ? "Previzualizare în direct (Live TV)" : "Live Display Preview"}</span>
+              </h3>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  type="button"
+                  className="live-preview-btn"
+                  onClick={() => setPreviewKey((k) => k + 1)}
+                  title={locale === "ro" ? "Reîncarcă fluxul" : "Reload feed"}
+                >
+                  🔄 {locale === "ro" ? "Reîmprospătează" : "Refresh"}
+                </button>
+                <a
+                  href="http://localhost:8765/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="live-preview-btn"
+                  title={locale === "ro" ? "Deschide în tab nou" : "Open in new tab"}
+                >
+                  ↗ {locale === "ro" ? "Ecran complet" : "Fullscreen"}
+                </a>
+              </div>
+            </div>
+            <div className="live-preview-tv-frame">
+              <iframe
+                key={previewKey}
+                src="http://localhost:8765/"
+                className="live-preview-iframe"
+                title="TV Display Preview"
+              />
+            </div>
+            <div className="live-preview-footer">
+              <span>● {selectedDevice.name} (127.0.0.1:8765)</span>
+              <span style={{ color: "#94a3b8" }}>
+                {locale === "ro" ? "Transmisie activă prin agentul TV local" : "Live stream via local display agent"}
+              </span>
+            </div>
+          </div>
+
+          {/* Right: Configuration Settings */}
+          <section className="panel configuration-panel" style={{ margin: 0 }}>
+            <div className="panel-heading">
+              <div>
+                <h3 style={{ margin: "0 0 4px", fontSize: "17px" }}>
+                  {locale === "ro" ? "Configurare: " : "Settings: "}
+                  <strong>{selectedDevice.name}</strong>
+                </h3>
+                <span className="muted" style={{ fontSize: "12px" }}>
+                  ID: {selectedDevice.id.slice(0, 8)}…
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                {syncStatus === "saving" && (
+                  <span className="status-badge saving">
+                    <span className="spinner"></span> {locale === "ro" ? "Se salvează…" : "Saving…"}
+                  </span>
+                )}
+                {syncStatus === "syncing" && (
+                  <span className="status-badge syncing">
+                    <span className="spinner"></span> {locale === "ro" ? "Se sincronizează…" : "Syncing to display…"}
+                  </span>
+                )}
+                {syncStatus === "synced" && (
+                  <span className="status-badge synced">
+                    {locale === "ro" ? "Actualizat pe ecran ✓" : "Updated on display ✓"}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="text-button danger"
+                  onClick={() => void deleteDevice(selectedDevice.id)}
+                >
+                  {locale === "ro" ? "Elimină ecranul" : "Delete display"}
+                </button>
+              </div>
+            </div>
+
+            <div className="tabs">
+              <button className={tab === "experience" ? "active" : ""} onClick={() => setTab("experience")}>
+                {locale === "ro" ? "Experiență" : "Experience"}
+              </button>
+              <button className={tab === "standby" ? "active" : ""} onClick={() => setTab("standby")}>
+                Standby
+              </button>
+              <button className={tab === "offer" ? "active" : ""} onClick={() => setTab("offer")}>
+                {locale === "ro" ? "Ofertă & QR" : "Offer & QR"}
+              </button>
+            </div>
+
+            {tab === "experience" && (
+              <div className="form-grid">
+                <label style={{ gridColumn: "1 / -1" }}>
+                  {locale === "ro" ? "Mesaj de întâmpinare (afișat la privire)" : "Greeting message (shown on look)"}
+                  <input
+                    value={String(config.greetingText ?? "Hei!")}
+                    placeholder="Hei!"
+                    onChange={(event) => update("greetingText", event.target.value)}
+                  />
+                  <small className="muted" style={{ fontSize: "12px", marginTop: "4px" }}>
+                    {locale === "ro"
+                      ? "Apare cu o animație dinamică (bounce) pe ecran înainte de tranziția ofertei și codul QR."
+                      : "Appears with an animated bounce before transitioning into the offer and QR code."}
+                  </small>
+                </label>
+                <label>
+                  {locale === "ro" ? "Șablon interactiv" : "Template"}
+                  <select
+                    value={String(config.template || "simple")}
+                    onChange={(event) => update("template", event.target.value)}
+                  >
+                    <option value="simple">Simple (Soft Reveal)</option>
+                    <option value="recruit">Recruit (Iris Blend + Side Locking)</option>
+                  </select>
+                </label>
+                <label>
+                  {locale === "ro" ? "Timp minim de privire:" : "Looking dwell time:"} {Number(config.lookTime || 3)} s
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    step="1"
+                    value={Number(config.lookTime || 3)}
+                    onChange={(event) => update("lookTime", Number(event.target.value))}
+                  />
+                </label>
+                <label className="checkbox" style={{ gridColumn: "1 / -1" }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(config.liveFaces ?? true)}
+                    onChange={(event) => update("liveFaces", event.target.checked)}
+                  />
+                  {locale === "ro" ? "Arată fețele decupate în timp real" : "Show soft blended faces in real time"}
+                </label>
+              </div>
+            )}
+
+            {tab === "standby" && (
+              <div className="form-grid">
+                <label>
+                  {locale === "ro" ? "Durată foto/GIF (secunde)" : "Photo/GIF duration (seconds)"}
+                  <input
+                    type="number"
+                    min="1"
+                    max="120"
+                    value={Number(config.standbyDuration || 8)}
+                    onChange={(event) => update("standbyDuration", Number(event.target.value))}
+                  />
+                </label>
+                <label>
+                  {locale === "ro" ? "Tranziție standby" : "Standby transition"}
+                  <select
+                    value={String(config.transition || "auto")}
+                    onChange={(event) => update("transition", event.target.value)}
+                  >
+                    <option value="auto">Auto (random fără repetare)</option>
+                    <option value="crossfade">Crossfade</option>
+                    <option value="zoom dissolve">Zoom dissolve</option>
+                    <option value="push">Push</option>
+                    <option value="soft wipe">Soft wipe</option>
+                    <option value="dip to black">Dip to black</option>
+                  </select>
+                </label>
+                <label>
+                  {locale === "ro" ? "Viteză tranziție" : "Transition speed"}
+                  <select
+                    value={
+                      typeof config.transitionSpeed === "number"
+                        ? config.transitionSpeed <= 0.6
+                          ? "fast"
+                          : config.transitionSpeed >= 1.2
+                            ? "slow"
+                            : "normal"
+                        : String(config.transitionSpeed || "normal")
+                    }
+                    onChange={(event) => update("transitionSpeed", event.target.value)}
+                  >
+                    <option value="fast">{locale === "ro" ? "Rapidă (0.5s)" : "Fast (0.5s)"}</option>
+                    <option value="normal">{locale === "ro" ? "Normală (0.9s)" : "Normal (0.9s)"}</option>
+                    <option value="slow">{locale === "ro" ? "Lentă (1.4s)" : "Slow (1.4s)"}</option>
+                  </select>
+                </label>
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(config.standbyEnabled ?? true)}
+                    onChange={(event) => update("standbyEnabled", event.target.checked)}
+                  />
+                  {locale === "ro" ? "Redare standby activată" : "Standby playback enabled"}
+                </label>
+                <div className="playlist-picker" style={{ gridColumn: "1 / -1" }}>
+                  <strong>
+                    {locale === "ro"
+                      ? "Playlist media (bifează fișierele de afișat în standby)"
+                      : "Media playlist (check items to show in standby)"}
+                  </strong>
+                  {assets.length === 0 ? (
+                    <p className="muted" style={{ margin: "8px 0" }}>
+                      {locale === "ro" ? "Nu ai încărcat niciun fișier media încă." : "No media uploaded yet."}
+                    </p>
+                  ) : (
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                        gap: "8px",
+                        marginTop: "10px",
+                      }}
+                    >
+                      {assets.map((asset) => {
+                        const playlist = Array.isArray(config.playlist) ? (config.playlist as string[]) : [];
+                        const selected = playlist.includes(asset.id);
+                        return (
+                          <label
+                            key={asset.id}
+                            className="checkbox"
+                            style={{
+                              margin: 0,
+                              padding: "6px 10px",
+                              background: "#f8fafc",
+                              borderRadius: "6px",
+                              border: "1px solid #e2e8f0",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={() =>
+                                update(
+                                  "playlist",
+                                  selected ? playlist.filter((id) => id !== asset.id) : [...playlist, asset.id]
+                                )
+                              }
+                            />
+                            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {asset.filename}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {tab === "offer" && (
+              <div className="form-grid">
+                <label>
+                  {locale === "ro" ? "Link QR" : "QR Link"}
+                  <input
+                    value={String(config.offerLink ?? "")}
+                    placeholder="https://adsense.davidpetrea.ro/offer"
+                    onChange={(event) => update("offerLink", event.target.value)}
+                  />
+                </label>
+                <label>
+                  {locale === "ro" ? "Titlu ofertă (Headline)" : "Offer headline"}
+                  <input
+                    value={String(config.headline ?? "")}
+                    placeholder="20% reducere"
+                    onChange={(event) => update("headline", event.target.value)}
+                  />
+                </label>
+                <label>
+                  {locale === "ro" ? "Subtitlu ofertă (Subtext)" : "Offer subtext"}
+                  <input
+                    value={String(config.subtext ?? "")}
+                    placeholder="Completează formularul pentru a revendica oferta"
+                    onChange={(event) => update("subtext", event.target.value)}
+                  />
+                </label>
+                <label>
+                  {locale === "ro" ? "Text imagine (opțional)" : "Media caption"}
+                  <input
+                    value={String(config.caption ?? "")}
+                    placeholder="Text peste imaginea ofertei"
+                    onChange={(event) => update("caption", event.target.value)}
+                  />
+                </label>
+                <label>
+                  {locale === "ro" ? "Mărime cod QR" : "QR Size"}
+                  <select
+                    value={
+                      config.qrSize === 160 ? "S" : config.qrSize === 300 ? "L" : typeof config.qrSize === "string" ? config.qrSize : "M"
+                    }
+                    onChange={(event) => update("qrSize", event.target.value)}
+                  >
+                    <option value="S">{locale === "ro" ? "Mic (S - 32%)" : "Small (S - 32%)"}</option>
+                    <option value="M">{locale === "ro" ? "Mediu (M - 40%)" : "Medium (M - 40%)"}</option>
+                    <option value="L">{locale === "ro" ? "Mare (L - 48%)" : "Large (L - 48%)"}</option>
+                  </select>
+                </label>
+                <label>
+                  {locale === "ro" ? "Culoare fundal ecran ofertă" : "Offer background color"}
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <input
+                      type="color"
+                      value={String(config.offerBackground || "#111827")}
+                      onChange={(event) => update("offerBackground", event.target.value)}
+                      style={{ width: "48px", height: "38px", padding: "2px", cursor: "pointer" }}
+                    />
+                    <input
+                      type="text"
+                      value={String(config.offerBackground || "#111827")}
+                      onChange={(event) => update("offerBackground", event.target.value)}
+                      style={{ width: "110px", fontFamily: "monospace" }}
+                    />
+                  </div>
+                </label>
+                <div
+                  className="offer-preview"
+                  style={{
+                    background: String(config.offerBackground || "#111827"),
+                    gridColumn: "1 / -1",
+                    padding: "20px",
+                    borderRadius: "10px",
+                    color: "#fff",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <div>
+                    <strong style={{ display: "block", fontSize: "20px", marginBottom: "4px" }}>
+                      {String(config.headline || "Ofertă specială")}
+                    </strong>
+                    <span style={{ fontSize: "14px", opacity: 0.9 }}>
+                      {String(config.subtext || "Completează formularul pentru a revendica oferta")}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      background: "#fff",
+                      color: "#000",
+                      padding: "8px 12px",
+                      borderRadius: "6px",
+                      fontWeight: "bold",
+                      fontSize: "12px",
+                    }}
+                  >
+                    QR [{String(config.qrSize || "M")}]
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {(!saved || syncStatus === "saving" || syncStatus === "syncing") && (
+              <div
+                className="sticky-save"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  justifyContent: "flex-end",
+                  marginTop: "16px",
+                  paddingTop: "14px",
+                  borderTop: "1px solid #e2e8f0",
+                }}
+              >
+                {syncStatus === "saving" && (
+                  <span className="status-badge saving">
+                    <span className="spinner"></span> {locale === "ro" ? "Se salvează…" : "Saving…"}
+                  </span>
+                )}
+                {syncStatus === "syncing" && (
+                  <span className="status-badge syncing">
+                    <span className="spinner"></span> {locale === "ro" ? "Se sincronizează…" : "Syncing to display…"}
+                  </span>
+                )}
+                {syncStatus === "synced" && (
+                  <span className="status-badge synced">
+                    {locale === "ro" ? "Actualizat pe ecran ✓" : "Updated on display ✓"}
+                  </span>
+                )}
+                <button
+                  className="button primary"
+                  disabled={syncStatus === "saving" || syncStatus === "syncing"}
+                  onClick={() => void publish()}
+                >
+                  {syncStatus === "saving"
+                    ? (locale === "ro" ? "Se salvează…" : "Saving…")
+                    : (locale === "ro" ? "Salvează și publică" : "Save and publish")}
+                </button>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1016,7 +1393,7 @@ function Dashboard({ locale, setLocale, route, t }: { locale: Locale; setLocale:
 
 function PageContent({ route, t, health, locale, setLocale }: { route: Route; t: (key: TranslationKey) => string; health: ApiState; locale: Locale; setLocale: (loc: Locale) => void }) {
   if (route === "dashboard") return <DashboardOverview locale={locale} t={t} health={health} />;
-  if (route === "displays") return <><DisplaysPanel locale={locale} /><ConfigurationPanel locale={locale} /></>;
+  if (route === "displays") return <DisplaysView locale={locale} />;
   if (route === "media") return <MediaUploader locale={locale} />;
   if (route === "leads") return <LeadsPanel locale={locale} />;
   if (route === "stats") return <StatsPanel locale={locale} />;

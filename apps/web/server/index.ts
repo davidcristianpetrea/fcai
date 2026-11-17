@@ -28,6 +28,7 @@ const contentTypes: Record<string, string> = { ".html": "text/html; charset=utf-
 const defaultDeviceConfig = {
   template: "simple",
   liveFaces: true,
+  greetingText: "Hei!",
   lookTime: 3,
   standbyDuration: 8,
   standbyEnabled: true,
@@ -36,7 +37,7 @@ const defaultDeviceConfig = {
   offerLink: "https://adsense.davidpetrea.ro/offer",
   headline: "",
   subtext: "",
-  caption: "aici poza cu mâncare",
+  caption: "",
   qrSize: 220,
   offerBackground: "#111827",
   playlist: [],

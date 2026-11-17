@@ -219,6 +219,8 @@ export class App {
       exitAfterNobodySeconds: 4.0,
       maxOfferSeconds: 22.0,
       cooldownSeconds: 6.0,
+      triggeringDurationMs: 1800,
+      exitingDurationMs: 800,
     });
 
     // Update media playlist
@@ -502,10 +504,8 @@ export class App {
     const tracks = this.blender.getActiveTracks();
     if (tracks.length === 0) return;
 
-    // Only lock to people side when offer/iris is active, allowing full-screen tracking in standby
-    const isOfferActive =
-      (phase === "TRIGGERING" || phase === "OFFER" || phase === "EXITING") &&
-      (config.template || "recruit") === "recruit";
+    // Lock to people side whenever offer is active, allowing full-screen tracking only in standby
+    const isOfferActive = phase === "TRIGGERING" || phase === "OFFER" || phase === "EXITING";
 
     const items = tracks.map((t) => ({
       id: t.id,
@@ -546,35 +546,73 @@ export class App {
     this.offerContainer.style.display = "flex";
 
     const stateElapsed = nowMs - this.stateMachine.stateStartedMs;
-    const animDuration = 800; // ms for smooth slide/blur transition
+    const triggerDuration = 1800; // ms for greeting then offer animation
+    const exitDuration = 800;
 
-    let animP = 1.0;
+    let slideAnim = 1.0;
+    let greetingVisible = false;
+    let greetingOpacity = 0.0;
+    let greetingScale = 1.0;
+    let greetingY = 0;
+    let contentOpacity = 0.0;
+    let contentScale = 1.0;
+    let contentY = 0;
+
     if (phase === "TRIGGERING") {
-      const p = Math.min(1.0, stateElapsed / animDuration);
-      animP = easeInOutCubic(p);
+      const slideP = Math.min(1.0, stateElapsed / 600);
+      slideAnim = easeInOutCubic(slideP);
+
+      if (stateElapsed < 1150) {
+        greetingVisible = true;
+        const bounceT = Math.min(1.0, stateElapsed / 600);
+        // Premium elastic bounce curve: shoots to 1.14 then smoothly settles
+        const overshoot = Math.sin(bounceT * Math.PI * 1.5) * 0.16 * (1 - bounceT);
+        greetingScale = 0.6 + 0.4 * (bounceT + overshoot);
+        if (stateElapsed > 800) {
+          greetingOpacity = Math.max(0, 1.0 - (stateElapsed - 800) / 300);
+          greetingY = -(1.0 - greetingOpacity) * 25;
+        } else {
+          greetingOpacity = Math.min(1.0, stateElapsed / 200);
+          greetingY = 0;
+        }
+      }
+
+      if (stateElapsed >= 950) {
+        const contentT = Math.min(1.0, (stateElapsed - 950) / 700);
+        const contentEased = easeInOutCubic(contentT);
+        contentOpacity = contentEased;
+        contentScale = 0.90 + 0.10 * contentEased;
+        contentY = (1.0 - contentEased) * 20;
+      }
     } else if (phase === "OFFER") {
-      animP = 1.0;
+      slideAnim = 1.0;
+      greetingVisible = false;
+      contentOpacity = 1.0;
+      contentScale = 1.0;
+      contentY = 0;
     } else if (phase === "EXITING") {
-      const p = Math.min(1.0, stateElapsed / animDuration);
-      animP = Math.max(0, 1.0 - easeInOutCubic(p));
+      const exitP = Math.min(1.0, stateElapsed / exitDuration);
+      slideAnim = Math.max(0, 1.0 - easeInOutCubic(exitP));
+      greetingVisible = false;
+      contentOpacity = slideAnim;
+      contentScale = 0.95 + 0.05 * slideAnim;
+      contentY = 0;
     }
 
     // Soft blur & subtle dimming on the standby video side during the offer
-    const blurPx = (7 * animP).toFixed(1);
-    const dimVal = (1.0 - 0.22 * animP).toFixed(2);
-    const opVal = (1.0 - 0.15 * animP).toFixed(2);
+    const blurPx = (7 * slideAnim).toFixed(1);
+    const dimVal = (1.0 - 0.22 * slideAnim).toFixed(2);
+    const opVal = (1.0 - 0.15 * slideAnim).toFixed(2);
     this.standbyContainer.style.filter = `blur(${blurPx}px) brightness(${dimVal})`;
     this.standbyContainer.style.opacity = opVal;
 
     // Content side opposite people; slides in from outer edge
     const contentSide = this.lockedPeopleSide === "left" ? "right" : "left";
-    const slidePercent = (1.0 - animP) * 100;
+    const slidePercent = (1.0 - slideAnim) * 100;
     const slideTransform =
       contentSide === "right"
         ? `translate3d(${slidePercent.toFixed(2)}%, 0, 0)`
         : `translate3d(-${slidePercent.toFixed(2)}%, 0, 0)`;
-
-    const qrScale = 0.90 + 0.10 * animP;
 
     // Smooth blur & color gradient blending the media half into the offer side
     const gradientBg =
@@ -582,6 +620,7 @@ export class App {
         ? `linear-gradient(to right, transparent 0%, rgba(15, 23, 42, 0.40) 10%, rgba(15, 23, 42, 0.85) 24%, ${bgColor} 42%, ${bgColor} 100%)`
         : `linear-gradient(to left, transparent 0%, rgba(15, 23, 42, 0.40) 10%, rgba(15, 23, 42, 0.85) 24%, ${bgColor} 42%, ${bgColor} 100%)`;
 
+    const greetingText = config.greetingText || "Hei!";
     const headline = config.headline || "20% reducere";
     const subtext = config.subtext || "Scanează codul QR cu telefonul";
 
@@ -605,18 +644,73 @@ export class App {
         padding: 5vw;
         background: ${gradientBg};
         transform: ${slideTransform};
-        opacity: ${animP.toFixed(2)};
+        opacity: ${slideAnim.toFixed(2)};
         color: ${colors.text};
         will-change: transform, opacity;
+        position: relative;
+        overflow: hidden;
       ">
-        <div class="offer-card" style="background: transparent; max-width: 620px;">
-          <h1 class="offer-headline" style="color: ${colors.text};">${headline}</h1>
-          <p class="offer-subtext" style="color: ${colors.muted};">${subtext}</p>
-          <div class="qr-wrapper" style="transform: scale(${qrScale.toFixed(4)});">
-            <div class="qr-card">
-              ${this.qrDataUrl ? `<img src="${this.qrDataUrl}" alt="QR" class="qr-image">` : ""}
+        ${
+          greetingVisible
+            ? `<div class="greeting-box" style="
+                position: absolute;
+                inset: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 4vw;
+                opacity: ${greetingOpacity.toFixed(2)};
+                transform: translate3d(0, ${greetingY.toFixed(1)}px, 0) scale(${greetingScale.toFixed(3)});
+                will-change: transform, opacity;
+                pointer-events: none;
+              ">
+                <span class="greeting-text" style="
+                  font-size: clamp(4.5rem, 9.5vw, 8rem);
+                  font-weight: 900;
+                  letter-spacing: -0.04em;
+                  color: #38bdf8;
+                  text-shadow: 0 10px 40px rgba(56, 189, 248, 0.45);
+                  line-height: 1;
+                ">${greetingText}</span>
+              </div>`
+            : ""
+        }
+        <div class="offer-card" style="
+          background: transparent;
+          max-width: 660px;
+          display: flex;
+          flex-direction: column;
+          gap: 1.5rem;
+          opacity: ${contentOpacity.toFixed(2)};
+          transform: translate3d(0, ${contentY.toFixed(1)}px, 0) scale(${contentScale.toFixed(3)});
+          will-change: transform, opacity;
+        ">
+          <h1 class="offer-headline" style="
+            font-size: clamp(3rem, 6.2vw, 5.25rem);
+            font-weight: 800;
+            line-height: 1.08;
+            letter-spacing: -0.03em;
+            margin: 0;
+            color: ${colors.text};
+          ">${headline}</h1>
+          <p class="offer-subtext" style="
+            font-size: clamp(1.4rem, 2.6vw, 2.25rem);
+            line-height: 1.35;
+            margin: 0;
+            font-weight: 500;
+            color: ${colors.muted};
+          ">${subtext}</p>
+          <div class="qr-wrapper" style="margin-top: 0.5rem;">
+            <div class="qr-card" style="
+              background: #ffffff;
+              padding: clamp(18px, 2.5vw, 30px);
+              border-radius: clamp(20px, 3vw, 32px);
+              box-shadow: 0 24px 50px rgba(0, 0, 0, 0.5);
+              display: inline-flex;
+            ">
+              ${this.qrDataUrl ? `<img src="${this.qrDataUrl}" alt="QR" class="qr-image" style="width: 100%; height: auto; aspect-ratio: 1;">` : ""}
             </div>
-            ${caption ? `<p class="qr-caption" style="color: ${colors.muted};">${caption}</p>` : ""}
+            ${caption ? `<p class="qr-caption" style="color: ${colors.muted}; margin-top: 0.5rem;">${caption}</p>` : ""}
           </div>
         </div>
       </div>
